@@ -1,0 +1,74 @@
+apply plugin: 'java'
+apply plugin: 'eclipse'
+apply plugin: 'maven'
+//apply plugin: 'signing'
+
+group = 'org.epics'
+archivesBaseName = 'pvDS'
+sourceCompatibility = 1.8
+version = '0.1-SNAPSHOT'
+jar {
+    manifest {
+        attributes 'Implementation-Title': 'pvDS',
+                   'Implementation-Version': version
+    }
+}
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+    maven {
+        url "https://oss.sonatype.org/content/repositories/snapshots"
+    }
+}
+
+dependencies {
+//    compile 'com.lmax:disruptor:3.3.2'
+    testCompile 'junit:junit:3.8.1'
+}
+
+task javadocJar(type: Jar) {
+    classifier = 'javadoc'
+    from javadoc
+}
+
+task sourcesJar(type: Jar) {
+    classifier = 'sources'
+    from sourceSets.main.allSource
+}
+
+artifacts {
+//    archives javadocJar, sourcesJar
+    archives sourcesJar
+}
+
+uploadArchives {
+  repositories {
+    mavenDeployer {
+      //beforeDeployment { MavenDeployment deployment -> signing.signPom(deployment) }
+
+      repository(url: "https://oss.sonatype.org/service/local/staging/deploy/maven2/") {
+        authentication(userName: ossrhUsername, password: ossrhPassword)
+      }
+
+      snapshotRepository(url: "https://oss.sonatype.org/content/repositories/snapshots/") {
+        authentication(userName: ossrhUsername, password: ossrhPassword)
+      }
+
+      pom.project {
+        name 'pvDS'
+        packaging 'jar'
+        // optionally artifactId can be defined here 
+        description 'Process Variable Distribution Service.'
+        url 'https://github.com/msekoranja/pvDS'
+
+        scm {
+          connection 'scm:git:https://github.com/msekoranja/pvDS.git'
+          developerConnection 'scm:git:https://github.com/msekoranja/pvDS.git'
+          url 'https://github.com/msekoranja/pvDS'
+        }
+
+      }
+    }
+  }
+}
