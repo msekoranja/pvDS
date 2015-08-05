@@ -23,6 +23,7 @@ repositories {
 }
 
 dependencies {
+    compile 'org.epics:pvDataJava:4.1.0-SNAPSHOT'
 //    compile 'com.lmax:disruptor:3.3.2'
     testCompile 'junit:junit:3.8.1'
 }

@@ -1,7 +1,7 @@
 /**
  * 
  */
-package org.epics.pvds;
+package org.epics.pvds.discovery;
 
 import java.util.Set;
 import java.util.Timer;
@@ -21,6 +21,7 @@ public class DiscoveryServiceImpl<T> extends TimerTask {
 	// List<Locator> endpoints;
 	
 	private final long announcePeriod;
+	@SuppressWarnings("unused")
 	private final long minAnnouncePeriod;
 	private final DiscoveryDataSet<T> dataSet;
 	private final ToByteArraySerializator<T> serializator;
@@ -29,6 +30,7 @@ public class DiscoveryServiceImpl<T> extends TimerTask {
 	private short count;		// change count
 	
 	private final Timer timer = new Timer("DiscoveryServiceImpl timer");
+	@SuppressWarnings("unused")
 	private long lastAnnounceTime;
 	
 	public DiscoveryServiceImpl(

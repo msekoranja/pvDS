@@ -1,7 +1,7 @@
 /**
  * 
  */
-package org.epics.pvds;
+package org.epics.pvds.discovery;
 
 import java.util.Set;
 
