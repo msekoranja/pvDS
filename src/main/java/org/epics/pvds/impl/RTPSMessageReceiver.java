@@ -563,10 +563,6 @@ return null;
 				case SubmessageHeader.RTPS_DATA:
 				case SubmessageHeader.RTPS_DATA_FRAG:
 	
-					// first we must receive HEARTBEAT message
-					if (lastHeartbeatLastSN == 0)
-						break;
-						
 					// extraFlags (not used)
 					// do not reorder flags (uncomment when used)
 					//buffer.order(ByteOrder.BIG_ENDIAN);
@@ -586,7 +582,8 @@ return null;
 					stats.receivedSN++;
 					//System.out.println("rx: " + seqNo);
 					
-					if (seqNo < ignoreSequenceNumbersPrior)
+					// RTPS_HEARTBEAT message must be received first or ignore (seqNo obsolete for this receiver) 
+					if (lastHeartbeatLastSN == 0 || seqNo < ignoreSequenceNumbersPrior)
 					{
 						stats.ignoredSN++;
 						break;
@@ -829,18 +826,27 @@ System.out.println(firstFragmentSeqNo + " put on completedBuffers");
 							
 							if (lastSN > lastKnownSequenceNumber)
 								lastKnownSequenceNumber = lastSN;
-
-							// add new available (from firstSN on) missed sequence numbers
+							
 							long newMissingSN = 0;
-							for (long sn = Math.max(ignoreSequenceNumbersPrior, Math.max(maxReceivedSequenceNumber + 1, firstSN)); sn <= lastSN; sn++)
-								if (missingSequenceNumbers.add(sn))
-									newMissingSN++;
-							stats.missedSN += newMissingSN;
 
-							// remove obsolete (not available anymore) sequence numbers
-							long minAvailableSN = Math.max(firstSN, ignoreSequenceNumbersPrior);
-							updateMinAvailableSeqNo(minAvailableSN, true);
-							ignoreSequenceNumbersPrior = firstSN;
+							if (maxReceivedSequenceNumber == 0)
+							{
+								// at start we accept only fresh (seqNo >= lastSN) sequences 
+								ignoreSequenceNumbersPrior = lastSN + 1;
+							}
+							else
+							{
+								// add new available (from firstSN on) missed sequence numbers
+								for (long sn = Math.max(ignoreSequenceNumbersPrior, Math.max(maxReceivedSequenceNumber + 1, firstSN)); sn <= lastSN; sn++)
+									if (missingSequenceNumbers.add(sn))
+										newMissingSN++;
+								stats.missedSN += newMissingSN;
+	
+								// remove obsolete (not available anymore) sequence numbers
+								long minAvailableSN = Math.max(firstSN, ignoreSequenceNumbersPrior);
+								updateMinAvailableSeqNo(minAvailableSN, true);
+								ignoreSequenceNumbersPrior = firstSN;
+							}
 							
 							// FinalFlag flag (require response)
 							boolean flagF = (receiver.submessageFlags & 0x02) == 0x02;
