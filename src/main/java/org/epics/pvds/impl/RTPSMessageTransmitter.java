@@ -62,7 +62,7 @@ public class RTPSMessageTransmitter extends RTPSMessageReceiver implements Seria
 	    		// duplicate call of same reader, this check is here
 	    		// to avoid the same reader increment resendRequests > 1
 	    		// and as consequence resend could not be done as unicast
-// TODO this causes problems
+// TODO this causes problems !!!!
 //	    		else if (resendUnicastAddress.get() == address)
 //	    			resendRequests.compareAndSet(resendRequestsCount + 1, resendRequestsCount);
 	    		
@@ -336,7 +336,9 @@ public class RTPSMessageTransmitter extends RTPSMessageReceiver implements Seria
 	    // recovery marker
 	    protected final void nack(SequenceNumberSet readerSNState, InetSocketAddress recoveryAddress)
 	    {
-	    	long base = readerSNState.bitmapBase;
+			System.out.println("NACK: " + readerSNState + " / LAST OVERRIDEN SEQNO:" + lastOverridenSeqNo.get());
+
+			long base = readerSNState.bitmapBase;
 	    	BitSet bitSet = readerSNState.bitmap;
 	        int i = -1;
             for (i = bitSet.nextSetBit(i+1); i >= 0; i = bitSet.nextSetBit(i+1))
@@ -390,7 +392,7 @@ public class RTPSMessageTransmitter extends RTPSMessageReceiver implements Seria
 	    private AtomicLong oldestACKedSequenceNumber = new AtomicLong(0);
 	    private AtomicInteger readerCount = new AtomicInteger(1);
 
-	    // TODO heartbeat, acknack are not exclided (do not sent lastSendTime)
+	    // TODO heartbeat, acknack are not excluded (do not sent lastSendTime)
 	    private long lastSendTime = 0;
 	    
 	    public void sendProcess() throws IOException, InterruptedException

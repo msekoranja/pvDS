@@ -71,7 +71,6 @@ public class TestPVDS {
 			
 		    new Thread(new Runnable() {
 		    	public void run() {
-
 		    		try
 		    		{
 			    		discoveryMulticastChannel.configureBlocking(false);
@@ -85,7 +84,7 @@ public class TestPVDS {
 			    			while (true)
 			    			{
 			    				// TODO let decide on timeout, e.g. rtpsReceiver.waitTime();
-			    				int keys = selector.select(10);
+			    				int keys = selector.select(100);
 			    				if (keys == 0)
 			    				{
 			    					rtpsReceiver.noData();
@@ -203,7 +202,7 @@ public class TestPVDS {
 	    
 	    tx.sendBuffer();
 	    */
-	    final long TIMEOUT = 3000;
+	    final long TIMEOUT = 5000;
 	    
 	    if (isRx && isTx)
 	    {
@@ -245,7 +244,7 @@ public class TestPVDS {
 					if (rdata == null)
 					{
 						System.err.println("message lost");
-		    			System.exit(1);
+						System.exit(1);
 					}
 					
 					rtpsReceiver.getStatistics().reset();
@@ -291,7 +290,7 @@ public class TestPVDS {
 					if (rdata == null)
 					{
 						System.err.println("message lost");
-		    			System.exit(1);
+			    		//System.exit(1);
 					}
 					
 		    		rtpsReceiver.getStatistics().reset();
@@ -313,9 +312,9 @@ public class TestPVDS {
 		    	countArray[0] = count++;
 		    	data.put(0, 1, countArray, 0);
 
-		    	tx.send(data);
-		    	if (tx.waitUntilReceived(clients, TIMEOUT) != clients);		// TODO what if ACK is lost (it happens!!!)
-		    		System.out.println(System.currentTimeMillis() + " / no ACK received");
+		    	tx.send(data); int c;
+		    	if ((c = tx.waitUntilReceived(clients, TIMEOUT)) != clients)		// TODO what if ACK is lost (it happens!!!)
+		    		System.out.println((count-1) + " / no ACK received: clients = " + c + " vs." + clients);
 		    	//// 0.1GB/sec, 10MB...1/10s
 		    	//if (sleepTime > 0)
 		    	//	Thread.sleep(sleepTime);

@@ -5,6 +5,7 @@ import java.nio.ByteBuffer;
 import org.epics.pvdata.factory.FieldFactory;
 import org.epics.pvdata.pv.DeserializableControl;
 import org.epics.pvdata.pv.Field;
+import org.epics.pvdata.pv.FieldCreate;
 import org.epics.pvdata.pv.PVField;
 import org.epics.pvdata.pv.PVScalarArray;
 import org.epics.pvdata.pv.PVString;
@@ -156,6 +157,7 @@ public final class PVDataSerialization {
 
 	static class NoopDeserializableControl implements DeserializableControl
 	{
+		static final FieldCreate fieldCreate = FieldFactory.getFieldCreate();
 
 		@Override
 		public void ensureData(int size) {
@@ -169,7 +171,7 @@ public final class PVDataSerialization {
 
 		@Override
 		public Field cachedDeserialize(ByteBuffer buffer) {
-			return FieldFactory.getFieldCreate().deserialize(buffer, this);
+			return fieldCreate.deserialize(buffer, this);
 		}
 	}
 
