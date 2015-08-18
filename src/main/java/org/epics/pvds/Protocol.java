@@ -207,7 +207,6 @@ In case the octetsToNextHeader==0 and the kind of Submessage is PAD or INFO_TS, 
 	    // Submessages with ID's 0x80 to 0xff (inclusive) are vendor-specific
 	    public static final byte PVDS_ANNOUNCE    	 = (byte)0x80;
 	    public static final byte PVDS_SHUTDOWN    	 = (byte)0x81;
-	    public static final byte PVDS_ACK	    	 = (byte)0x82;
 		
 	}
 	

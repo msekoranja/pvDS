@@ -202,7 +202,7 @@ public class TestPVDS {
 	    
 	    tx.sendBuffer();
 	    */
-	    final long TIMEOUT = 5000;
+	    final long TIMEOUT = 5000*10;
 	    
 	    if (isRx && isTx)
 	    {
@@ -312,8 +312,8 @@ public class TestPVDS {
 		    	countArray[0] = count++;
 		    	data.put(0, 1, countArray, 0);
 
-		    	tx.send(data); int c;
-		    	if ((c = tx.waitUntilReceived(clients, TIMEOUT)) != clients)		// TODO what if ACK is lost (it happens!!!)
+		    	long seqNo = tx.send(data); int c;
+		    	if ((c = tx.waitUntilReceived(seqNo, clients, TIMEOUT)) != clients)		// TODO what if ACK is lost (it happens!!!)
 		    		System.out.println((count-1) + " / no ACK received: clients = " + c + " vs." + clients);
 		    	//// 0.1GB/sec, 10MB...1/10s
 		    	//if (sleepTime > 0)

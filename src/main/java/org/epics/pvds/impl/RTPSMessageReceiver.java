@@ -6,6 +6,7 @@ import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayDeque;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Map.Entry;
 import java.util.TreeMap;
@@ -111,27 +112,6 @@ public class RTPSMessageReceiver extends RTPSMessageEndPoint
 		    // set message size
 		    int octetsToNextHeader = buffer.position() - octetsToNextHeaderPos - 2;
 		    buffer.putShort(octetsToNextHeaderPos, (short)(octetsToNextHeader & 0xFFFF));
-	    }
-
-	    // used by addAckSubmessage method only
-	    private int ackCounter = 0;
-	    // TODO try to piggyback
-	    // TODO tmp - consider using standard RTPS message?
-	    protected void addAckSubmessage(ByteBuffer buffer, long ackSeqNo)
-	    {
-	    	// big endian flag
-	    	addSubmessageHeader(buffer, SubmessageHeader.PVDS_ACK, (byte)0x00, 20);
-		    
-		    // readerId
-		    buffer.putInt(readerId);		
-		    // writerId
-		    buffer.putInt(0);
-		    
-		    // ackSeqNo
-		    buffer.putLong(ackSeqNo);
-		    
-		    // count
-		    buffer.putInt(ackCounter++);
 	    }
 
 	    // "pvMSpvMS"
@@ -277,8 +257,8 @@ return null;
 		    	{
 		    		buffer.position(0);
 		    		
+		    		// TODO immediate ack using ACKNACK
 		    		// TODO optional behavior (via ParamList)
-		    		ackSNReception(seqNo);
 		    		
 		    		return true;
 		    	}
@@ -353,7 +333,7 @@ return null;
 	    private final ByteBuffer ackNackBuffer = ByteBuffer.allocate(128);
 	    private boolean sendAckNackResponse()
 	    {
-	    	//System.out.println("missing SN count:" + missingSequenceNumbers.size());
+	    	System.out.println("missing SN count:" + missingSequenceNumbers.size());
 	    	if (missingSequenceNumbers.isEmpty())
 	    	{
 	    		// we ACK all sequence numbers until maxReceivedSequenceNumber
@@ -369,7 +349,7 @@ return null;
 		    		{
 		    			// TODO imagine this case 100, 405...500
 		    			// in this case readerSNState can report only 100!!!
-//System.out.println("sn (" + sn + ") - first (" + first + ") >= 255 ("+ (sn - first) + ")");	
+System.out.println("sn (" + sn + ") - first (" + first + ") >= 255 ("+ (sn - first) + ")");	
 		    			// send NACK only message
 		    			break;
 		    		}
@@ -420,30 +400,6 @@ return null;
 	    	
 	    	//if (missingSequenceNumbers.size() >= ACKNACK_MISSING_COUNT_THRESHOLD)
 	    		sendAckNackResponse();		// request???
-	    }
-	    
-	    
-	    
-
-	    // TODO preinitialize, etc.
-	    private final ByteBuffer ackBuffer = ByteBuffer.allocate(64);
-	    private boolean ackSNReception(long ackSenNo)
-	    {
-	    	//System.out.println(ackSenNo);
-	    	ackBuffer.clear();
-	    	addMessageHeader(ackBuffer);
-	    	addAckSubmessage(ackBuffer, ackSenNo);
-	    	ackBuffer.flip();
-
-	    	// TODO
-		    try {
-				discoveryUnicastChannel.send(ackBuffer, receiver.receivedFrom);
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-				return false;
-			}
-	    	return true;
 	    }
 	    
 	    
@@ -580,13 +536,27 @@ return null;
 					long seqNo = buffer.getLong();
 
 					stats.receivedSN++;
-					//System.out.println("rx: " + seqNo);
+			System.out.println("rx: " + seqNo);
 					
-					// RTPS_HEARTBEAT message must be received first or ignore (seqNo obsolete for this receiver) 
-					if (lastHeartbeatLastSN == 0 || seqNo < ignoreSequenceNumbersPrior)
+					if (seqNo < ignoreSequenceNumbersPrior)
 					{
 						stats.ignoredSN++;
 						break;
+					}
+					else if (lastHeartbeatLastSN == 0)
+					{
+						// RTPS_HEARTBEAT message must be received first or ignore (seqNo obsolete for this receiver) 
+						// NOTE: we accept lastHeartbeatLastSN == 0 && seqNo == 1 not to skip first seqNo
+						// i.e. when receiver is started before transmitter
+						if (seqNo == 1)
+						{
+							lastHeartbeatLastSN = 1; // seqNo;
+						}
+						else
+						{
+							stats.ignoredSN++;
+							break;
+						}
 					}
 
 					// TODO handle maxReceivedSequenceNumber wrap !!!
@@ -822,12 +792,14 @@ System.out.println(firstFragmentSeqNo + " put on completedBuffers");
 							lastHeartbeatCount = count;
 						
 							// TODO remove
-//							System.out.println("HEARTBEAT: " + firstSN + " -> " + lastSN + " | " + count);
+							System.out.println("HEARTBEAT: " + firstSN + " -> " + lastSN + " | " + count);
 							
 							if (lastSN > lastKnownSequenceNumber)
 								lastKnownSequenceNumber = lastSN;
 							
 							long newMissingSN = 0;
+							
+							// TODO report nackAck (for ignoreSequenceNumbersPrior) here... periodically or...!!!
 
 							if (maxReceivedSequenceNumber == 0)
 							{
@@ -845,7 +817,7 @@ System.out.println(firstFragmentSeqNo + " put on completedBuffers");
 								// remove obsolete (not available anymore) sequence numbers
 								long minAvailableSN = Math.max(firstSN, ignoreSequenceNumbersPrior);
 								updateMinAvailableSeqNo(minAvailableSN, true);
-								ignoreSequenceNumbersPrior = firstSN;
+								ignoreSequenceNumbersPrior = Math.max(ignoreSequenceNumbersPrior, firstSN);
 							}
 							
 							// FinalFlag flag (require response)
@@ -853,7 +825,7 @@ System.out.println(firstFragmentSeqNo + " put on completedBuffers");
 							if (flagF)
 								sendAckNackResponse();
 							// no new data on writer side and we have some SN missing - request them!
-							else if (lastHeartbeatLastSN == lastSN && missingSequenceNumbers.size() > 0)
+							else if (lastHeartbeatLastSN == lastSN /*&& missingSequenceNumbers.size() > 0*/)		// TODO
 								checkAckNackCondition(true);
 							else if (newMissingSN > 0)
 								checkAckNackCondition();
@@ -895,36 +867,14 @@ System.out.println(firstFragmentSeqNo + " put on completedBuffers");
 						lastAckNackCount = count;
 						
 						nack(readerSNState, (InetSocketAddress)receiver.receivedFrom);
-						
 						//System.out.println("ACKNACK: " + readerSNState + " | " + count);
-						
+
+						// ack (or receiver does not care anymore) all before readerSNState.bitmapBase
+						ack(readerSNState.bitmapBase);
 					}
 				}
 				break;
 
-				// temporary, maybe there is a better way (using HEARTBEAT and ACKNACK)
-				case SubmessageHeader.PVDS_ACK:
-				{
-					buffer.order(ByteOrder.BIG_ENDIAN);
-					// entityId is octet[3] + octet
-					receiver.readerId = buffer.getInt();
-					receiver.writerId = buffer.getInt();
-					buffer.order(endianess);
-					
-					long ackSeqNo = buffer.getLong();
-					
-					if (ackSeqNo <= 0)
-					{
-						stats.invalidMessage++;
-						return false;
-					}
-					
-					int count = buffer.getInt();
-					
-					ack(ackSeqNo);
-				}
-				break;
-				
 				default:
 					stats.unknownSubmessage++;
 					return false;
@@ -1083,13 +1033,14 @@ System.out.println("missed some messages, promoting the following unfragmented m
 	    
 	    // transmitter side
 	    private final Object ackMonitor = new Object();
+	    private long lastAckedSeqNo = 0;
 	    private void ack(long ackSeqNo)
 	    {
+	    	System.out.println(Arrays.toString(receiver.sourceGuidPrefix) + ": " + ackSeqNo);
 			//System.out.println(ackSeqNo);
 			synchronized (ackMonitor) {
-				receivedCount++;
-				if (receivedCount >= expectedReceivedCount)
-					ackMonitor.notifyAll();
+				lastAckedSeqNo = ackSeqNo;		// TODO performance bottleneck... lock!!!
+				ackMonitor.notifyAll();
 			}
 	    }
 
@@ -1098,9 +1049,17 @@ System.out.println("missed some messages, promoting the following unfragmented m
 	    // synced on ackMonitor
 	    int expectedReceivedCount = 0;
 	    
-	    public int waitUntilReceived(int count, long timeout) throws InterruptedException
+	    public int waitUntilReceived(long seqNo, int count, long timeout) throws InterruptedException
 	    {
+	    	//if (seqNo <= lastHeartbeatFirstSN)
+
+    		Thread.sleep(100000);
 	    	synchronized (ackMonitor) {
+
+	    	//	while (seqNo <= lastAckedSeqNo)
+	    		//{
+	    			
+	    		//}
 	    		if (receivedCount >= count)
 	    			return receivedCount;
 	    		expectedReceivedCount = count;

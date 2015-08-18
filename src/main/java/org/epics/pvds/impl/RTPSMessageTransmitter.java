@@ -170,7 +170,7 @@ public class RTPSMessageTransmitter extends RTPSMessageReceiver implements Seria
 	    private static final int DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN = 24;
 	    
 	    // no fragmentation
-	    public void addDataSubmessage(ByteBuffer buffer, PVField data, int dataSize)
+	    public long addDataSubmessage(ByteBuffer buffer, PVField data, int dataSize)
 	    {
 	    	// big endian, data flag
 	    	addSubmessageHeader(buffer, SubmessageHeader.RTPS_DATA, (byte)0x04, 0x0000);
@@ -187,7 +187,8 @@ public class RTPSMessageTransmitter extends RTPSMessageReceiver implements Seria
 		    buffer.putInt(writerId);
 		    
 		    // writerSN
-		    buffer.putLong(newWriterSequenceNumber());
+		    long sn = newWriterSequenceNumber();
+		    buffer.putLong(sn);
 		    
 		    // InlineQoS TODO
 		    
@@ -199,6 +200,8 @@ public class RTPSMessageTransmitter extends RTPSMessageReceiver implements Seria
 		    // set message size
 		    int octetsToNextHeader = buffer.position() - octetsToNextHeaderPos - 2;
 		    buffer.putShort(octetsToNextHeaderPos, (short)(octetsToNextHeader & 0xFFFF));
+		    
+		    return sn;
 	    }
 
 	    private int heartbeatCounter = 0;
@@ -237,7 +240,7 @@ public class RTPSMessageTransmitter extends RTPSMessageReceiver implements Seria
 	    private int fragmentDataLeft = 0;
 	    
 	    // fragmentation
-	    public void addDataFragSubmessageHeader(ByteBuffer buffer)
+	    public long addDataFragSubmessageHeader(ByteBuffer buffer)
 	    {
 	    	boolean firstFragment = (fragmentStartingNum == 1);
 	    	
@@ -255,7 +258,8 @@ public class RTPSMessageTransmitter extends RTPSMessageReceiver implements Seria
 		    buffer.putInt(writerId);
 		    
 		    // writerSN
-		    buffer.putLong(newWriterSequenceNumber());
+		    long sn = newWriterSequenceNumber();
+		    buffer.putLong(sn);
 		    
 		    // fragmentStartingNum (unsigned integer, starting from 1)
 		    buffer.putInt(fragmentStartingNum++);
@@ -283,18 +287,22 @@ public class RTPSMessageTransmitter extends RTPSMessageReceiver implements Seria
 		    
 		    // octetsToNextHeader is left to 0 (until end of the message)
 		    // this means this DataFrag message must be the last message 
+		    
+		    return sn;
 	    }
 
 	    // fragmentation
-	    public void addDataFragSubmessage(ByteBuffer buffer, PVField data, int dataSize)
+	    public long addDataFragSubmessage(ByteBuffer buffer, PVField data, int dataSize)
 	    {
 	    	fragmentTotalSize = fragmentDataLeft = dataSize;
 	    	fragmentSize = 0;		// to be initialized later
 	    	fragmentStartingNum = 1;
 	    	
-	    	addDataFragSubmessageHeader(buffer);
+	    	long sn = addDataFragSubmessageHeader(buffer);
 	    			    
 		    data.serialize(buffer, this);
+		    
+		    return sn;
 	    }
 
 	    /*
@@ -538,7 +546,7 @@ public class RTPSMessageTransmitter extends RTPSMessageReceiver implements Seria
 		}
 		
 		// not thread-safe
-	    public void send(PVField data) throws InterruptedException
+	    public long send(PVField data) throws InterruptedException
 	    {
 	    	int dataSize = PVDataSerialization.getSerializationSize(data);
 
@@ -547,12 +555,15 @@ public class RTPSMessageTransmitter extends RTPSMessageReceiver implements Seria
 		    addMessageHeader(serializationBuffer);
 		    // TODO put all necessary messages here
 		    
+		    long sn;
 		    if ((dataSize + DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN) <= MAX_PACKET_SIZE_BYTES)
-		    	addDataSubmessage(serializationBuffer, data, dataSize);
+		    	sn = addDataSubmessage(serializationBuffer, data, dataSize);
 		    else
-		    	addDataFragSubmessage(serializationBuffer, data, dataSize);
+		    	sn = addDataFragSubmessage(serializationBuffer, data, dataSize);
 
 		    sendBuffer();
+		    
+		    return sn;
 	    }
 	    
 	    // TODO
