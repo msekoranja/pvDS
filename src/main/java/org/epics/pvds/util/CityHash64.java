@@ -192,11 +192,11 @@ public final class CityHash64 {
 
 	private static final long K_MUL = 0x9ddfea08eb382d69L;
 
-	private static long getLong(byte[] src, int off) {
+	public static long getLong(byte[] src, int off) {
 		return arrayGetter.getLongLittleEndian(src, off);
 	}
 
-	private static int getInt(byte[] src, int off) {
+	public static int getInt(byte[] src, int off) {
 		return arrayGetter.getIntLittleEndian(src, off);
 	}
 

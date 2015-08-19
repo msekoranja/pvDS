@@ -75,7 +75,7 @@ public class Protocol {
 			bb.putInt((int)(uuid4.getLeastSignificantBits() >>> 32));
 		}
 		
-		private GUIDPrefix(byte[] value) {
+		public GUIDPrefix(byte[] value) {
 			this.value = value;
 		}
 		
@@ -113,6 +113,11 @@ public class Protocol {
 			value = entityKey << 8 | entityKind;
 		}
 		
+		public EntityId(int entityId)
+		{
+			value = entityId;
+		}
+
 		public static final EntityId ENTITYID_UNKNOWN = new EntityId(0, (byte)0);
 		
 		public static EntityId generateParticipantEntityId(int participantId)
