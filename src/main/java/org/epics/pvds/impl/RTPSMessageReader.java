@@ -1,48 +1,29 @@
 package org.epics.pvds.impl;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayDeque;
-import java.util.Arrays;
-import java.util.HashMap;
 import java.util.Iterator;
-import java.util.Map;
 import java.util.Map.Entry;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 
 import org.epics.pvdata.pv.PVField;
-import org.epics.pvds.Protocol;
-import org.epics.pvds.Protocol.ProtocolVersion;
 import org.epics.pvds.Protocol.SequenceNumberSet;
 import org.epics.pvds.Protocol.SubmessageHeader;
-import org.epics.pvds.Protocol.VendorId;
-import org.epics.pvds.util.CityHash64;
-import org.epics.pvds.util.LongDynaHeap;
 
 /**
  * RTPS message receiver implementation.
- * The class itself is not thread-safe, i.e. processMessage() method should be called from only one thread. 
+ * The class itself is not thread-safe, i.e. processSubMessage() method should be called from only one thread. 
  * @author msekoranja
  */
-public class RTPSMessageReceiver extends RTPSMessageEndPoint
+public class RTPSMessageReader extends RTPSMessageProcessor
 	{
 		private final int readerId;
 		
-		private final MessageReceiver receiver = new MessageReceiver();
-	    private final MessageReceiverStatistics stats = new MessageReceiverStatistics();
-
-	    public MessageReceiverStatistics getStatistics()
-	    {
-	    	return stats;
-	    }
-	    
 	    // non-synced list of free buffers
 	    private final ArrayDeque<FragmentationBufferEntry> freeFragmentationBuffers;
 	    
@@ -55,7 +36,7 @@ public class RTPSMessageReceiver extends RTPSMessageEndPoint
 	    private final TreeMap<Long, SharedBuffer> completedBuffers;
 	    
 
-	    public RTPSMessageReceiver(String multicastNIF, int domainId, int readerId) throws Throwable {
+	    public RTPSMessageReader(String multicastNIF, int domainId, int readerId) throws Throwable {
 			super(multicastNIF, domainId);
 			
 			this.readerId = readerId;
@@ -308,7 +289,6 @@ return null;
 	    }
 	    
 	    private int lastHeartbeatCount = Integer.MIN_VALUE;
-	    private int lastAckNackCount = Integer.MIN_VALUE;
 	    
 	    private final SequenceNumberSet readerSNState = new SequenceNumberSet();
 	    
@@ -417,109 +397,9 @@ System.out.println("sn (" + sn + ") - first (" + first + ") >= 255 ("+ (sn - fir
 	    
 	    
 	    // not thread-safe
-	    public boolean processMessage(SocketAddress receivedFrom, ByteBuffer buffer)
+	    public boolean processSubMessage(byte submessageId, ByteOrder endianess, ByteBuffer buffer)
 		{
-			receiver.reset();
-			receiver.receivedFrom = receivedFrom;
-			
-			if (buffer.remaining() < Protocol.RTPS_HEADER_SIZE)
-			{
-				stats.messageToSmall++;
-				return false;
-			}
-			
-			// header fields consist of octet arrays, use big endian to read it
-			// in C/C++ ntoh methods would be used
-			buffer.order(ByteOrder.BIG_ENDIAN);
-			
-			// read message header 
-			int protocolId = buffer.getInt();
-			receiver.sourceVersion = buffer.getShort();
-			receiver.sourceVendorId = buffer.getShort();
-			buffer.get(receiver.sourceGuidPrefix, 0, 12);
-	
-			// check protocolId
-			if (protocolId != Protocol.ProtocolId.PVDS_VALUE)
-			{
-				stats.nonRTPSMessage++;
-				return false;
-			}
-	
-			// check version
-			if (receiver.sourceVersion != ProtocolVersion.PROTOCOLVERSION_2_1)
-			{
-				stats.versionMismatch++;
-				return false;
-			}
-			
-			// check vendor
-			if (receiver.sourceVendorId != VendorId.PVDS_VENDORID)
-			{
-				stats.vendorMismatch++;
-				return false;
-			}
-			
-			// process submessages
-			int remaining;
-			while ((remaining = buffer.remaining()) > 0)
-			{
-				if (remaining < Protocol.RTPS_SUBMESSAGE_HEADER_SIZE)
-				{
-					stats.invalidSubmessageSize++;
-					return false;
-				}
-					
-				// check alignment
-				if (buffer.position() % Protocol.RTPS_SUBMESSAGE_ALIGNMENT != 0)
-				{
-					stats.submesssageAlignmentMismatch++;
-					return false;
-				}
-				
-				// read submessage header
-				receiver.submessageId = buffer.get();
-				receiver.submessageFlags = buffer.get();
-				
-				// apply endianess
-				ByteOrder endianess = (receiver.submessageFlags & 0x01) == 0x01 ?
-											ByteOrder.LITTLE_ENDIAN :
-											ByteOrder.BIG_ENDIAN;
-				buffer.order(endianess);
-				
-				// read submessage size (octetsToNextHeader)
-				receiver.submessageSize = buffer.getShort() & 0xFFFF;
-
-		        // "jumbogram" condition: octetsToNextHeader == 0 for all except PAD and INFO_TS
-				//
-				// this submessage is the last submessage in the message and
-				// extends up to the end of the message
-		        // in case the octetsToNextHeader==0 and the kind of submessage is PAD or INFO_TS,
-		        // the next submessage header starts immediately after the current submessage header OR
-		        // the PAD or INFO_TS is the last submessage in the message
-		        if (receiver.submessageSize == 0 &&
-		        	(receiver.submessageId != SubmessageHeader.RTPS_INFO_TS &&
-		        	 receiver.submessageId != SubmessageHeader.RTPS_PAD))
-		        {
-		        	receiver.submessageSize = buffer.remaining();
-		        }
-		        else if (buffer.remaining() < receiver.submessageSize)
-		        {
-		        	stats.invalidSubmessageSize++;
-		        	return false;
-		        }
-				
-				// min submessage size check
-				if (receiver.submessageSize < Protocol.RTPS_SUBMESSAGE_SIZE_MIN)
-				{
-					stats.invalidSubmessageSize++;
-					return false;
-				}
-
-				int submessageDataStartPosition = buffer.position();
-	
-		        stats.submessageType[(receiver.submessageId & 0xFF)]++;
-	
-				switch (receiver.submessageId) {
+				switch (submessageId) {
 	
 				case SubmessageHeader.RTPS_DATA:
 				case SubmessageHeader.RTPS_DATA_FRAG:
@@ -850,47 +730,10 @@ System.out.println(firstFragmentSeqNo + " put on completedBuffers");
 					}
 					break;
 					
-				case SubmessageHeader.RTPS_ACKNACK:
-				{
-					buffer.order(ByteOrder.BIG_ENDIAN);
-					// entityId is octet[3] + octet
-					receiver.readerId = buffer.getInt();
-					receiver.writerId = buffer.getInt();
-					buffer.order(endianess);
-
-					if (!readerSNState.deserialize(buffer))
-					{
-						stats.invalidMessage++;
-						return false;
-					}
-					
-					int count = buffer.getInt();
-
-					// TODO warp !!!
-					if (count > lastAckNackCount)
-					{
-						lastAckNackCount = count;
-						
-						nack(readerSNState, (InetSocketAddress)receiver.receivedFrom);
-						//System.out.println("ACKNACK: " + readerSNState + " | " + count);
-
-						// ack (or receiver does not care anymore) all before readerSNState.bitmapBase
-						ack(readerSNState.bitmapBase);
-					}
-				}
-				break;
-
 				default:
-					stats.unknownSubmessage++;
 					return false;
 				}
 	
-		        // jump to next submessage position
-		        buffer.position(submessageDataStartPosition + receiver.submessageSize);	// exception?
-			}
-			
-			stats.validMessage++;
-			
 			return true;
 		}
 	    
@@ -998,6 +841,10 @@ System.out.println("missed some messages, promoting the following unfragmented m
 			return lostSNCount;
 		}
 	    
+		
+		
+		
+		
 	    // TODO to be moved out
 	    
 	    // receiver side
@@ -1029,128 +876,5 @@ System.out.println("missed some messages, promoting the following unfragmented m
 	    		}
 	    	}
 	    }
-	    
-	    
-	    private class GUIDHasher {
-	    	
-	    	// optimized GUID (16-byte byte[] converted to 2 longs)
-	    	long p1;
-	    	long p2;
-	    	
-	    	public void set(byte[] guidPrefix, int entityId)
-	    	{
-	    		p1 = CityHash64.getLong(guidPrefix, 0);
-	    		int ip2 = CityHash64.getInt(guidPrefix, 8);
-	    		p2 = (ip2 << 32) | entityId;
-	    	}
 
-			@Override
-			public int hashCode() {
-				return (int) (p1 ^ p2);
-			}
-
-			@Override
-			public boolean equals(Object obj) {
-				if (obj instanceof GUIDHasher)
-				{
-					GUIDHasher o = (GUIDHasher)obj;
-					return p1 == o.p1 && p2 == o.p2;
-				}
-				else
-					return false;
-			}
-
-			@Override
-			protected Object clone() throws CloneNotSupportedException {
-				GUIDHasher o = new GUIDHasher();
-				o.p1 = p1;
-				o.p2 = p2;
-				return o;
-			}
-			
-			
-	    	
-	    }
-	    
-	    public class ReaderEntry {
-	    	long lastAliveTime = 0;
-	    	LongDynaHeap.HeapMapElement ackSeqNoHeapElement;
-	    }
-	    
-	    private final GUIDHasher guidHasher = new GUIDHasher();
-	    
-	    private static final int INITIAL_READER_CAPACITY = 16;
-	    private final Map<GUIDHasher, ReaderEntry> readerMap = new HashMap<GUIDHasher, ReaderEntry>(INITIAL_READER_CAPACITY);
-	    private final LongDynaHeap minAckSeqNoHeap = new LongDynaHeap(INITIAL_READER_CAPACITY);
-	    
-	    // transmitter side
-	    private final Object ackMonitor = new Object();
-	    private long lastAckedSeqNo = 0;
-	    private final AtomicLong waitForAckedSeqNo = new AtomicLong(0);
-	    private void ack(long ackSeqNo)
-	    {
-	    	System.out.println("ACK: " + ackSeqNo);
-	    	guidHasher.set(receiver.sourceGuidPrefix,  receiver.readerId);
-
-	    	ReaderEntry readerEntry = readerMap.get(guidHasher);
-	    	if (readerEntry == null)
-	    	{
-	    		System.out.println("new reader");
-	    		readerEntry = new ReaderEntry();
-	    		try {
-					readerMap.put((GUIDHasher)guidHasher.clone(), readerEntry);
-				} catch (CloneNotSupportedException e) {
-					// noop
-				}
-		    	readerEntry.ackSeqNoHeapElement = minAckSeqNoHeap.insert(ackSeqNo);
-	    	}
-	    	else
-	    	{
-		    	// TODO wrap
-		    	minAckSeqNoHeap.increment(readerEntry.ackSeqNoHeapElement, ackSeqNo);
-	    	}
-
-	    	readerEntry.lastAliveTime = System.currentTimeMillis(); // TODO get from receiverStatistic?
-	    	
-	    	System.out.println(guidHasher.hashCode() + " : " + ackSeqNo);
-	    	
-	    	long waitedAckSeqNo = waitForAckedSeqNo.get();
-	    	System.out.println("\twaited:" + waitedAckSeqNo);
-	    	if (waitedAckSeqNo > 0 && minAckSeqNoHeap.size() > 0)
-	    	{
-	    		long minSeqNo = minAckSeqNoHeap.peek().getValue();
-	    	System.out.println("\tmin:" + minSeqNo);
-	    		if (minSeqNo >= waitedAckSeqNo)
-	    		{
-	    			System.out.println("reporting min: " + minSeqNo);
-					synchronized (ackMonitor) {
-						lastAckedSeqNo = minSeqNo;
-						ackMonitor.notifyAll();
-					}
-	    		}
-	    	}
-	    }
-
-	    public boolean waitUntilReceived(long seqNo, long timeout) throws InterruptedException
-	    {
-	    	//if (seqNo <= lastHeartbeatFirstSN)
-
-	    	synchronized (ackMonitor) {
-
-	    		waitForAckedSeqNo.set(seqNo);
-	    		while (seqNo >= lastAckedSeqNo)
-	    		{
-		    		ackMonitor.wait(timeout);
-	    		}
-	    		
-	    		waitForAckedSeqNo.set(0);
-	    		return (seqNo < lastAckedSeqNo) ? true : false;
-	    	}
-	    }
-
-	    protected void nack(SequenceNumberSet readerSNState, InetSocketAddress recoveryAddress)
-	    {
-	    	// noop from receiver
-	    }
-	    
 	}

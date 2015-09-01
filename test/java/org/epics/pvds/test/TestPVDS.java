@@ -15,8 +15,8 @@ import org.epics.pvdata.pv.PVField;
 import org.epics.pvdata.pv.ScalarType;
 import org.epics.pvdata.pv.Structure;
 import org.epics.pvds.impl.PVDataSerialization;
-import org.epics.pvds.impl.RTPSMessageReceiver;
-import org.epics.pvds.impl.RTPSMessageTransmitter;
+import org.epics.pvds.impl.RTPSMessageReader;
+import org.epics.pvds.impl.RTPSMessageWriter;
 
 public class TestPVDS {
 
@@ -62,8 +62,8 @@ public class TestPVDS {
 	    else
 	    	throw new IllegalArgumentException("invalid mode");
 	    
-		final RTPSMessageReceiver rtpsReceiver = isRx ? 
-				new RTPSMessageReceiver(args.length > 0 ? args[0] : null, 0, 0x87654321) : null;
+		final RTPSMessageReader rtpsReceiver = isRx ? 
+				new RTPSMessageReader(args.length > 0 ? args[0] : null, 0, 0x87654321) : null;
 		if (isRx)
 		{
 			final DatagramChannel discoveryMulticastChannel = rtpsReceiver.getDiscoveryMulticastChannel();
@@ -138,8 +138,8 @@ public class TestPVDS {
 		}
 		
 		
-	    final RTPSMessageTransmitter tx = isTx ? 
-	    		new RTPSMessageTransmitter(args.length > 0 ? args[0] : null, 0, 0x12345678) : null;
+	    final RTPSMessageWriter tx = isTx ? 
+	    		new RTPSMessageWriter(args.length > 0 ? args[0] : null, 0, 0x12345678) : null;
 
 	    
 	    if (isTx)

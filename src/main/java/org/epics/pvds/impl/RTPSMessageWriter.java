@@ -4,6 +4,9 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.StandardSocketOptions;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -17,13 +20,18 @@ import org.epics.pvdata.pv.PVField;
 import org.epics.pvdata.pv.SerializableControl;
 import org.epics.pvds.Protocol.SequenceNumberSet;
 import org.epics.pvds.Protocol.SubmessageHeader;
+import org.epics.pvds.util.CityHash64;
+import org.epics.pvds.util.LongDynaHeap;
 
-//static class RTPSMessageTransmitter extends RTPSMessageEndPoint implements SerializableControl {
-public class RTPSMessageTransmitter extends RTPSMessageReceiver implements SerializableControl {
+public class RTPSMessageWriter extends RTPSMessageProcessor implements SerializableControl {
 
 		// this instance (writer) EntityId;
 		final int writerId;
 		
+	    private int lastAckNackCount = Integer.MIN_VALUE;
+	    
+	    private final SequenceNumberSet readerSNState = new SequenceNumberSet();
+	    
 	    // TODO to be configurable
 
 		// NOTE: Giga means 10^9 (not 1024^3)
@@ -110,9 +118,8 @@ public class RTPSMessageTransmitter extends RTPSMessageReceiver implements Seria
 
 		final ByteBuffer serializationBuffer;
 
-	    public RTPSMessageTransmitter(String multicastNIF, int domainId, int writerId) throws Throwable {
-			//super(multicastNIF, domainId);
-			super(multicastNIF, domainId, 0);
+	    public RTPSMessageWriter(String multicastNIF, int domainId, int writerId) throws Throwable {
+			super(multicastNIF, domainId);
 			this.writerId = writerId;
 
 		    // sender setup
@@ -165,6 +172,163 @@ public class RTPSMessageTransmitter extends RTPSMessageReceiver implements Seria
 	    }
 	    */
 	    
+	    public boolean processSubMessage(byte submessageId, ByteOrder endianess, ByteBuffer buffer)
+	    {
+			switch (submessageId) {
+			case SubmessageHeader.RTPS_ACKNACK:
+			{
+				buffer.order(ByteOrder.BIG_ENDIAN);
+				// entityId is octet[3] + octet
+				receiver.readerId = buffer.getInt();
+				receiver.writerId = buffer.getInt();
+				buffer.order(endianess);
+
+				if (!readerSNState.deserialize(buffer))
+				{
+					stats.invalidMessage++;
+					return false;
+				}
+				
+				int count = buffer.getInt();
+
+				// TODO warp !!!
+				if (count > lastAckNackCount)
+				{
+					lastAckNackCount = count;
+					
+					nack(readerSNState, (InetSocketAddress)receiver.receivedFrom);
+					//System.out.println("ACKNACK: " + readerSNState + " | " + count);
+
+					// ack (or receiver does not care anymore) all before readerSNState.bitmapBase
+					ack(readerSNState.bitmapBase);
+				}
+			}
+			break;
+
+			default:
+				stats.unknownSubmessage++;
+				return false;
+			}
+
+			return true;
+	    }
+
+	    private class GUIDHasher {
+	    	
+	    	// optimized GUID (16-byte byte[] converted to 2 longs)
+	    	long p1;
+	    	long p2;
+	    	
+	    	public void set(byte[] guidPrefix, int entityId)
+	    	{
+	    		p1 = CityHash64.getLong(guidPrefix, 0);
+	    		int ip2 = CityHash64.getInt(guidPrefix, 8);
+	    		p2 = (ip2 << 32) | entityId;
+	    	}
+
+			@Override
+			public int hashCode() {
+				return (int) (p1 ^ p2);
+			}
+
+			@Override
+			public boolean equals(Object obj) {
+				if (obj instanceof GUIDHasher)
+				{
+					GUIDHasher o = (GUIDHasher)obj;
+					return p1 == o.p1 && p2 == o.p2;
+				}
+				else
+					return false;
+			}
+
+			@Override
+			protected Object clone() throws CloneNotSupportedException {
+				GUIDHasher o = new GUIDHasher();
+				o.p1 = p1;
+				o.p2 = p2;
+				return o;
+			}
+			
+			
+	    	
+	    }
+	    
+	    public class ReaderEntry {
+	    	long lastAliveTime = 0;
+	    	LongDynaHeap.HeapMapElement ackSeqNoHeapElement;
+	    }
+	    
+	    private final GUIDHasher guidHasher = new GUIDHasher();
+	    
+	    private static final int INITIAL_READER_CAPACITY = 16;
+	    private final Map<GUIDHasher, ReaderEntry> readerMap = new HashMap<GUIDHasher, ReaderEntry>(INITIAL_READER_CAPACITY);
+	    private final LongDynaHeap minAckSeqNoHeap = new LongDynaHeap(INITIAL_READER_CAPACITY);
+	    
+	    // transmitter side
+	    private final Object ackMonitor = new Object();
+	    private long lastAckedSeqNo = 0;
+	    private final AtomicLong waitForAckedSeqNo = new AtomicLong(0);
+	    private void ack(long ackSeqNo)
+	    {
+	    	System.out.println("ACK: " + ackSeqNo);
+	    	guidHasher.set(receiver.sourceGuidPrefix,  receiver.readerId);
+
+	    	ReaderEntry readerEntry = readerMap.get(guidHasher);
+	    	if (readerEntry == null)
+	    	{
+	    		System.out.println("new reader");
+	    		readerEntry = new ReaderEntry();
+	    		try {
+					readerMap.put((GUIDHasher)guidHasher.clone(), readerEntry);
+				} catch (CloneNotSupportedException e) {
+					// noop
+				}
+		    	readerEntry.ackSeqNoHeapElement = minAckSeqNoHeap.insert(ackSeqNo);
+	    	}
+	    	else
+	    	{
+		    	// TODO wrap
+		    	minAckSeqNoHeap.increment(readerEntry.ackSeqNoHeapElement, ackSeqNo);
+	    	}
+
+	    	readerEntry.lastAliveTime = System.currentTimeMillis(); // TODO get from receiverStatistic?
+	    	
+	    	System.out.println(guidHasher.hashCode() + " : " + ackSeqNo);
+	    	
+	    	long waitedAckSeqNo = waitForAckedSeqNo.get();
+	    	System.out.println("\twaited:" + waitedAckSeqNo);
+	    	if (waitedAckSeqNo > 0 && minAckSeqNoHeap.size() > 0)
+	    	{
+	    		long minSeqNo = minAckSeqNoHeap.peek().getValue();
+	    	System.out.println("\tmin:" + minSeqNo);
+	    		if (minSeqNo >= waitedAckSeqNo)
+	    		{
+	    			System.out.println("reporting min: " + minSeqNo);
+					synchronized (ackMonitor) {
+						lastAckedSeqNo = minSeqNo;
+						ackMonitor.notifyAll();
+					}
+	    		}
+	    	}
+	    }
+
+	    public boolean waitUntilReceived(long seqNo, long timeout) throws InterruptedException
+	    {
+	    	//if (seqNo <= lastHeartbeatFirstSN)
+
+	    	synchronized (ackMonitor) {
+
+	    		waitForAckedSeqNo.set(seqNo);
+	    		while (seqNo >= lastAckedSeqNo)
+	    		{
+		    		ackMonitor.wait(timeout);
+	    		}
+	    		
+	    		waitForAckedSeqNo.set(0);
+	    		return (seqNo < lastAckedSeqNo) ? true : false;
+	    	}
+	    }
 
 	    
 	    private static final int DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN = 24;
