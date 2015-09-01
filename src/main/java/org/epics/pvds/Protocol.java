@@ -277,6 +277,9 @@ In case the octetsToNextHeader==0 and the kind of Submessage is PAD or INFO_TS, 
      * are confirmed as received by the reader.
      * The sequence numbers that appear in the set indicate missing sequence numbers on the reader side.
      * The ones that do not appear in the set are undetermined (could be received or not).
+     * 
+     * Limitation: 63-bit range of sequence numbers is enough for couple of decades,
+     * therefore there is no need to handle wrap.
      */
     public static class SequenceNumberSet
     {
