@@ -305,16 +305,19 @@ public class TestPVDS {
 	    else if (isTx)
 	    {
 	    	//long sleepTime = Long.valueOf(System.getProperty("DELAY", "0"));
-	    	int clients = Integer.valueOf(System.getProperty("CLIENTS", "1"));
+	    	//int clients = Integer.valueOf(System.getProperty("CLIENTS", "1"));
 	    	byte[] countArray = new byte[1]; byte count = 0;
 		    while(true)
 		    {
 		    	countArray[0] = count++;
 		    	data.put(0, 1, countArray, 0);
 
-		    	long seqNo = tx.send(data); int c;
-		    	if ((c = tx.waitUntilReceived(seqNo, clients, TIMEOUT)) != clients)		// TODO what if ACK is lost (it happens!!!)
-		    		System.out.println((count-1) + " / no ACK received: clients = " + c + " vs." + clients);
+		    	long seqNo = tx.send(data); 
+	    		System.out.println((count-1) + " / sent " + seqNo);
+		    	if (!tx.waitUntilReceived(seqNo, TIMEOUT))		// TODO what if ACK is lost (it happens!!!)
+		    		System.out.println((count-1) + " / no ACK received for " + seqNo);
+		    	else
+		    		System.out.println((count-1) + " / OK for " + seqNo);
 		    	//// 0.1GB/sec, 10MB...1/10s
 		    	//if (sleepTime > 0)
 		    	//	Thread.sleep(sleepTime);

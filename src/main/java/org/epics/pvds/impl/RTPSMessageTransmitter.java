@@ -555,15 +555,14 @@ public class RTPSMessageTransmitter extends RTPSMessageReceiver implements Seria
 		    addMessageHeader(serializationBuffer);
 		    // TODO put all necessary messages here
 		    
-		    long sn;
 		    if ((dataSize + DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN) <= MAX_PACKET_SIZE_BYTES)
-		    	sn = addDataSubmessage(serializationBuffer, data, dataSize);
+		    	addDataSubmessage(serializationBuffer, data, dataSize);
 		    else
-		    	sn = addDataFragSubmessage(serializationBuffer, data, dataSize);
+		    	addDataFragSubmessage(serializationBuffer, data, dataSize);
 
 		    sendBuffer();
 		    
-		    return sn;
+		    return writerSequenceNumber.get();
 	    }
 	    
 	    // TODO

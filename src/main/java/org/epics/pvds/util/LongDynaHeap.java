@@ -154,13 +154,11 @@ public class LongDynaHeap {
 	 * Increment a value of existing element to a new value.
 	 * @param element existing element.
 	 * @param value new value of an element.
-	 * @return min element.
 	 * @exception IndexOutOfBoundsException if heap is empty.
 	 **/
-	public HeapMapElement increment(HeapMapElement element, long value) {
+	public void increment(HeapMapElement element, long value) {
 		element.value = value;
 		shiftDown(element.pos);
-		return elements[0];
 	}
 	
 	/**
