@@ -17,7 +17,7 @@ import org.epics.pvdata.misc.BitSet;
  * @author msekoranja
  *
  */
-public class Protocol {
+public final class Protocol {
 
 	
 	/**
@@ -373,4 +373,20 @@ In case the octetsToNextHeader==0 and the kind of Submessage is PAD or INFO_TS, 
     	
     }
 
+    public static final void addMessageHeader(ByteBuffer buffer)
+    {
+	    // MessageHeader
+    	buffer.putLong(HEADER_NO_GUID);
+	    buffer.put(GUIDPrefix.GUIDPREFIX.value);
+    }
+
+    public static final void addSubmessageHeader(ByteBuffer buffer, 
+    		byte submessageId, byte submessageFlags, int octetsToNextHeaderPos)
+    {
+    	buffer.put(submessageId);
+	    // E = SubmessageHeader.flags & 0x01 (0 = big, 1 = little)
+    	buffer.put(submessageFlags);
+    	buffer.putShort((short)octetsToNextHeaderPos);
+    }
+    
 }

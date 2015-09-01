@@ -3,27 +3,58 @@ package org.epics.pvds.impl;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.HashMap;
+import java.util.Map;
 
 import org.epics.pvds.Protocol;
+import org.epics.pvds.Protocol.GUIDPrefix;
 import org.epics.pvds.Protocol.ProtocolVersion;
 import org.epics.pvds.Protocol.SubmessageHeader;
 import org.epics.pvds.Protocol.VendorId;
 
 /**
- * RTPS message processor (receiver) implementation.
- * The class itself is not thread-safe, i.e. processMessage() method should be called from only one thread. 
+ * RTPS message processor implementation.
+ * The class itself is not thread-safe.
  * @author msekoranja
  */
-public abstract class RTPSMessageProcessor extends RTPSMessageEndPoint
+public class RTPSMessageProcessor extends RTPSMessageEndPoint
 {
 	protected final MessageReceiver receiver = new MessageReceiver();
     protected final MessageReceiverStatistics stats = new MessageReceiverStatistics();
 
+    private static final int INITIAL_READER_CAPACITY = 16;
+    protected final Map<GUIDHolder, RTPSMessageReader> readerMap = new HashMap<GUIDHolder, RTPSMessageReader>(INITIAL_READER_CAPACITY);
+
+    private static final int INITIAL_WRITER_CAPACITY = 16;
+    protected final Map<GUIDHolder, RTPSMessageWriter> writerMap = new HashMap<GUIDHolder, RTPSMessageWriter>(INITIAL_WRITER_CAPACITY);
+
     public RTPSMessageProcessor(String multicastNIF, int domainId) throws Throwable {
 		super(multicastNIF, domainId);
 	}
+    
+    public RTPSMessageReader createReader(int readerId, int maxMessageSize, int messageQueueSize)
+    {
+    	GUIDHolder guid = new GUIDHolder(GUIDPrefix.GUIDPREFIX.value, readerId);
+
+    	if (readerMap.containsKey(guid))
+    		throw new RuntimeException("Reader with such readerId already exists.");
+    		
+    	RTPSMessageReader reader = new RTPSMessageReader(this, readerId, maxMessageSize, messageQueueSize);
+    	readerMap.put(guid, reader);
+    	return reader;
+    }
 	    
-    abstract boolean processSubMessage(byte submessageId, ByteOrder endianess, ByteBuffer buffer);
+    public RTPSMessageWriter createWriter(int writerId)
+    {
+    	GUIDHolder guid = new GUIDHolder(GUIDPrefix.GUIDPREFIX.value, writerId);
+
+    	if (writerMap.containsKey(guid))
+    		throw new RuntimeException("Writer with such writerId already exists.");
+    		
+    	RTPSMessageWriter writer = new RTPSMessageWriter(this, writerId);
+    	writerMap.put(guid, writer);
+    	return writer;
+    }
 
     // not thread-safe
     public final boolean processMessage(SocketAddress receivedFrom, ByteBuffer buffer)
@@ -128,9 +159,70 @@ public abstract class RTPSMessageProcessor extends RTPSMessageEndPoint
 
 	        stats.submessageType[(receiver.submessageId & 0xFF)]++;
 
-	        if (!processSubMessage(receiver.submessageId, endianess, buffer))
-				stats.unknownSubmessage++;
+			switch (receiver.submessageId)
+			{
+				case SubmessageHeader.RTPS_DATA:
+				case SubmessageHeader.RTPS_DATA_FRAG:
+				{
+					// extraFlags (not used)
+					// do not reorder flags (uncomment when used)
+					//buffer.order(ByteOrder.BIG_ENDIAN);
+					buffer.getShort();
+					//buffer.order(endianess);
+					
+					int octetsToInlineQos = buffer.getShort() & 0xFFFF;
+	
+					buffer.order(ByteOrder.BIG_ENDIAN);
+					// entityId is octet[3] + octet
+					receiver.readerId = buffer.getInt();
+					receiver.writerId = buffer.getInt();
+					buffer.order(endianess);
+					
+					receiver.sourceGuidHolder.set(receiver.sourceGuidPrefix, receiver.writerId);
+					RTPSMessageReader reader = readerMap.get(receiver.readerId);
+					if (reader != null)
+						reader.processDataSubMessage(octetsToInlineQos, buffer);
+						
+					break;
+				}
+				
+				case SubmessageHeader.RTPS_HEARTBEAT:
+				{
+					buffer.order(ByteOrder.BIG_ENDIAN);
+					// entityId is octet[3] + octet
+					receiver.readerId = buffer.getInt();
+					receiver.writerId = buffer.getInt();
+					buffer.order(endianess);
 
+					receiver.sourceGuidHolder.set(receiver.sourceGuidPrefix, receiver.readerId);
+					RTPSMessageReader reader = readerMap.get(receiver.sourceGuidHolder);
+					if (reader != null)
+						reader.processHeartbeatSubMessage(buffer);
+					
+					break;
+				}
+
+				case SubmessageHeader.RTPS_ACKNACK:
+				{
+					buffer.order(ByteOrder.BIG_ENDIAN);
+					// entityId is octet[3] + octet
+					receiver.readerId = buffer.getInt();
+					receiver.writerId = buffer.getInt();
+					buffer.order(endianess);
+
+					receiver.sourceGuidHolder.set(receiver.sourceGuidPrefix, receiver.writerId);
+					RTPSMessageWriter writer = writerMap.get(receiver.sourceGuidHolder);
+					if (writer != null)
+						writer.processAckNackSubMessage(buffer);
+					
+					break;
+				}
+				
+				default:
+					stats.unknownSubmessage++;
+					break;
+			}
+			
 	        // jump to next submessage position
 	        buffer.position(submessageDataStartPosition + receiver.submessageSize);	// check for out of bounds exception?
 		}
@@ -140,6 +232,11 @@ public abstract class RTPSMessageProcessor extends RTPSMessageEndPoint
 		return true;
 	}
     
+    public final MessageReceiver getReceiver()
+    {
+    	return receiver;
+    }
+
     public final MessageReceiverStatistics getStatistics()
     {
     	return stats;

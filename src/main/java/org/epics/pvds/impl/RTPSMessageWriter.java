@@ -4,7 +4,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.StandardSocketOptions;
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
+import java.nio.channels.DatagramChannel;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -18,13 +18,20 @@ import org.epics.pvdata.misc.BitSet;
 import org.epics.pvdata.pv.Field;
 import org.epics.pvdata.pv.PVField;
 import org.epics.pvdata.pv.SerializableControl;
+import org.epics.pvds.Protocol;
 import org.epics.pvds.Protocol.SequenceNumberSet;
 import org.epics.pvds.Protocol.SubmessageHeader;
 import org.epics.pvds.util.LongDynaHeap;
 
-public class RTPSMessageWriter extends RTPSMessageProcessor implements SerializableControl {
+public class RTPSMessageWriter implements SerializableControl {
 
-		// this instance (writer) EntityId;
+		protected final MessageReceiver receiver;
+		protected final MessageReceiverStatistics stats;
+
+	    // TODO
+	    protected final DatagramChannel discoveryUnicastChannel;
+
+	    // this instance (writer) EntityId;
 		final int writerId;
 		
 	    private int lastAckNackCount = Integer.MIN_VALUE;
@@ -117,14 +124,20 @@ public class RTPSMessageWriter extends RTPSMessageProcessor implements Serializa
 
 		final ByteBuffer serializationBuffer;
 
-	    public RTPSMessageWriter(String multicastNIF, int domainId, int writerId) throws Throwable {
-			super(multicastNIF, domainId);
+	    public RTPSMessageWriter(RTPSMessageProcessor processor, int writerId) {
+	    	this.receiver = processor.getReceiver();
+	    	this.stats = processor.getStatistics();
+	    	this.discoveryUnicastChannel = processor.getDiscoveryUnicastChannel();
 			this.writerId = writerId;
 
 		    // sender setup
-		    discoveryUnicastChannel.setOption(StandardSocketOptions.IP_MULTICAST_LOOP, true);
-		    discoveryUnicastChannel.setOption(StandardSocketOptions.IP_MULTICAST_IF, nif);
-		    multicastAddress = new InetSocketAddress(discoveryMulticastGroup, discoveryMulticastPort);
+		    try {
+				discoveryUnicastChannel.setOption(StandardSocketOptions.IP_MULTICAST_LOOP, true);
+			    discoveryUnicastChannel.setOption(StandardSocketOptions.IP_MULTICAST_IF, processor.getMulticastNIF());
+			    multicastAddress = new InetSocketAddress(processor.getDiscoveryMulticastGroup(), processor.getDiscoveryMulticastPort());
+			} catch (Throwable th) {
+				throw new RuntimeException(th);
+			}
 
 		    int bufferPacketsCount = (int)(SEND_BUFFER_SIZE_KB * 1024L / (MAX_PACKET_SIZE_BYTES+SPARE_BUFFER_SIZE));
 		    if (bufferPacketsCount < MIN_SEND_BUFFER_PACKETS)
@@ -170,47 +183,29 @@ public class RTPSMessageWriter extends RTPSMessageProcessor implements Serializa
 	    	buffer.limit(buffer.capacity());
 	    }
 	    */
-	    
-	    public boolean processSubMessage(byte submessageId, ByteOrder endianess, ByteBuffer buffer)
+
+	    void processAckNackSubMessage(ByteBuffer buffer)
 	    {
-			switch (submessageId) {
-			case SubmessageHeader.RTPS_ACKNACK:
+			if (!readerSNState.deserialize(buffer))
 			{
-				buffer.order(ByteOrder.BIG_ENDIAN);
-				// entityId is octet[3] + octet
-				receiver.readerId = buffer.getInt();
-				receiver.writerId = buffer.getInt();
-				buffer.order(endianess);
+				stats.invalidMessage++;
+				return;
+			}
+			
+			int count = buffer.getInt();
 
-				if (!readerSNState.deserialize(buffer))
-				{
-					stats.invalidMessage++;
-					return false;
-				}
+			// NOTE: warp concise comparison
+			if (count - lastAckNackCount > 0)
+			{
+				lastAckNackCount = count;
 				
-				int count = buffer.getInt();
+				nack(readerSNState, (InetSocketAddress)receiver.receivedFrom);
+				//System.out.println("ACKNACK: " + readerSNState + " | " + count);
 
-				// NOTE: warp concise comparison
-				if (count - lastAckNackCount > 0)
-				{
-					lastAckNackCount = count;
-					
-					nack(readerSNState, (InetSocketAddress)receiver.receivedFrom);
-					//System.out.println("ACKNACK: " + readerSNState + " | " + count);
-
-					// ack (or receiver does not care anymore) all before readerSNState.bitmapBase
-					ack(readerSNState.bitmapBase);
-				}
+				// ack (or receiver does not care anymore) all before readerSNState.bitmapBase
+				ack(readerSNState.bitmapBase);
 			}
-			break;
-
-			default:
-				stats.unknownSubmessage++;
-				return false;
-			}
-
-			return true;
-	    }
+		}
 
 	    public class ReaderEntry {
 	    	long lastAliveTime = 0;
@@ -294,10 +289,10 @@ public class RTPSMessageWriter extends RTPSMessageProcessor implements Serializa
 	    private static final int DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN = 24;
 	    
 	    // no fragmentation
-	    public long addDataSubmessage(ByteBuffer buffer, PVField data, int dataSize)
+	    private long addDataSubmessage(ByteBuffer buffer, PVField data, int dataSize)
 	    {
 	    	// big endian, data flag
-	    	addSubmessageHeader(buffer, SubmessageHeader.RTPS_DATA, (byte)0x04, 0x0000);
+	    	Protocol.addSubmessageHeader(buffer, SubmessageHeader.RTPS_DATA, (byte)0x04, 0x0000);
 		    int octetsToNextHeaderPos = buffer.position() - 2;
 
 		    // extraFlags
@@ -339,10 +334,10 @@ public class RTPSMessageWriter extends RTPSMessageProcessor implements Serializa
 	    //    - every N messages
 	    //    (- manually)
 	    // * every message that sends seqNo, in a way sends heartbeat.lastSN
-	    public void addHeartbeatSubmessage(ByteBuffer buffer, long firstSN, long lastSN)
+	    private void addHeartbeatSubmessage(ByteBuffer buffer, long firstSN, long lastSN)
 	    {
 	    	// big endian flag
-	    	addSubmessageHeader(buffer, SubmessageHeader.RTPS_HEARTBEAT, (byte)0x00, 28);
+	    	Protocol.addSubmessageHeader(buffer, SubmessageHeader.RTPS_HEARTBEAT, (byte)0x00, 28);
 		    
 		    // readerId
 		    buffer.putInt(0);		
@@ -364,12 +359,12 @@ public class RTPSMessageWriter extends RTPSMessageProcessor implements Serializa
 	    private int fragmentDataLeft = 0;
 	    
 	    // fragmentation
-	    public long addDataFragSubmessageHeader(ByteBuffer buffer)
+	    private long addDataFragSubmessageHeader(ByteBuffer buffer)
 	    {
 	    	boolean firstFragment = (fragmentStartingNum == 1);
 	    	
 	    	// big endian flag
-	    	addSubmessageHeader(buffer, SubmessageHeader.RTPS_DATA_FRAG, (byte)0x00, 0x0000);
+	    	Protocol.addSubmessageHeader(buffer, SubmessageHeader.RTPS_DATA_FRAG, (byte)0x00, 0x0000);
 
 		    // extraFlags
 		    buffer.putShort((short)0x0000);
@@ -416,7 +411,7 @@ public class RTPSMessageWriter extends RTPSMessageProcessor implements Serializa
 	    }
 
 	    // fragmentation
-	    public long addDataFragSubmessage(ByteBuffer buffer, PVField data, int dataSize)
+	    private long addDataFragSubmessage(ByteBuffer buffer, PVField data, int dataSize)
 	    {
 	    	fragmentTotalSize = fragmentDataLeft = dataSize;
 	    	fragmentSize = 0;		// to be initialized later
@@ -506,11 +501,11 @@ public class RTPSMessageWriter extends RTPSMessageProcessor implements Serializa
 	   			return false;
 	   		heartbeatBuffer.clear();
 
-	   		addMessageHeader(heartbeatBuffer);
+	   		Protocol.addMessageHeader(heartbeatBuffer);
     		addHeartbeatSubmessage(heartbeatBuffer, firstSN, lastSentSeqNo);
     		heartbeatBuffer.flip();
     		// TODO !!!
-		    discoveryUnicastChannel.send(heartbeatBuffer, multicastAddress);
+    		discoveryUnicastChannel.send(heartbeatBuffer, multicastAddress);
 
 		    return true;
 	    }
@@ -676,7 +671,7 @@ public class RTPSMessageWriter extends RTPSMessageProcessor implements Serializa
 
 	    	takeFreeBuffer();
 		    
-		    addMessageHeader(serializationBuffer);
+	    	Protocol.addMessageHeader(serializationBuffer);
 		    // TODO put all necessary messages here
 		    
 		    if ((dataSize + DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN) <= MAX_PACKET_SIZE_BYTES)
@@ -792,7 +787,7 @@ public class RTPSMessageWriter extends RTPSMessageProcessor implements Serializa
 				
 				sendBuffer();
 				takeFreeBuffer();
-				addMessageHeader(serializationBuffer);
+				Protocol.addMessageHeader(serializationBuffer);
 				addDataFragSubmessageHeader(serializationBuffer);
 				
 				if (spareEnabled && spareOverflow > 0)

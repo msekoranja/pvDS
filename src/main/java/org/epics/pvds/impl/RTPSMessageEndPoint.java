@@ -6,7 +6,6 @@ import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.StandardProtocolFamily;
 import java.net.StandardSocketOptions;
-import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.util.Arrays;
 
@@ -40,7 +39,19 @@ public class RTPSMessageEndPoint
     	return discoveryUnicastChannel;
     }
 
-    public RTPSMessageEndPoint(String multicastNIF, int domainId) throws Throwable
+    public NetworkInterface getMulticastNIF() {
+		return nif;
+	}
+
+	public InetAddress getDiscoveryMulticastGroup() {
+		return discoveryMulticastGroup;
+	}
+
+	public int getDiscoveryMulticastPort() {
+		return discoveryMulticastPort;
+	}
+
+	public RTPSMessageEndPoint(String multicastNIF, int domainId) throws Throwable
 	{
 		if (domainId > Protocol.MAX_DOMAIN_ID)
 			throw new IllegalArgumentException("domainId >= " + String.valueOf(Protocol.MAX_DOMAIN_ID));
@@ -100,21 +111,5 @@ public class RTPSMessageEndPoint
 	    System.out.println("pvDS unicast port: " + unicastDiscoveryPort);
 	    System.out.println("pvDS GUID prefix: " + Arrays.toString(GUIDPrefix.GUIDPREFIX.value));
 	}
-	
-    public void addMessageHeader(ByteBuffer buffer)
-    {
-	    // MessageHeader
-    	buffer.putLong(Protocol.HEADER_NO_GUID);
-	    buffer.put(GUIDPrefix.GUIDPREFIX.value);
-    }
-
-    public void addSubmessageHeader(ByteBuffer buffer, 
-    		byte submessageId, byte submessageFlags, int octetsToNextHeaderPos)
-    {
-    	buffer.put(submessageId);
-	    // E = SubmessageHeader.flags & 0x01 (0 = big, 1 = little)
-    	buffer.put(submessageFlags);
-    	buffer.putShort((short)octetsToNextHeaderPos);
-    }
 	
 }

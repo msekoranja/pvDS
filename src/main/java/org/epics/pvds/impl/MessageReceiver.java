@@ -22,6 +22,8 @@ public final class MessageReceiver
 	int readerId;
 	int writerId;
 	
+	GUIDHolder sourceGuidHolder = new GUIDHolder();
+	
 	public void reset() 
 	{
 		// it does not makes sence to reset
