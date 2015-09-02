@@ -20,41 +20,41 @@ import org.epics.pvds.Protocol.VendorId;
  * The class itself is not thread-safe.
  * @author msekoranja
  */
-public class RTPSMessageProcessor extends RTPSMessageEndPoint
+public class RTPSParticipant extends RTPSEndPoint
 {
 	protected final MessageReceiver receiver = new MessageReceiver();
     protected final MessageReceiverStatistics stats = new MessageReceiverStatistics();
 
     private static final int INITIAL_READER_CAPACITY = 16;
-    protected final Map<GUIDHolder, RTPSMessageReader> readerMap = new HashMap<GUIDHolder, RTPSMessageReader>(INITIAL_READER_CAPACITY);
+    protected final Map<GUIDHolder, RTPSReader> readerMap = new HashMap<GUIDHolder, RTPSReader>(INITIAL_READER_CAPACITY);
 
     private static final int INITIAL_WRITER_CAPACITY = 16;
-    protected final Map<GUIDHolder, RTPSMessageWriter> writerMap = new HashMap<GUIDHolder, RTPSMessageWriter>(INITIAL_WRITER_CAPACITY);
+    protected final Map<GUIDHolder, RTPSWriter> writerMap = new HashMap<GUIDHolder, RTPSWriter>(INITIAL_WRITER_CAPACITY);
 
-    public RTPSMessageProcessor(String multicastNIF, int domainId) throws Throwable {
+    public RTPSParticipant(String multicastNIF, int domainId) throws Throwable {
 		super(multicastNIF, domainId);
 	}
     
-    public RTPSMessageReader createReader(int readerId, int maxMessageSize, int messageQueueSize)
+    public RTPSReader createReader(int readerId, int maxMessageSize, int messageQueueSize)
     {
     	GUIDHolder guid = new GUIDHolder(GUIDPrefix.GUIDPREFIX.value, readerId);
 
     	if (readerMap.containsKey(guid))
     		throw new RuntimeException("Reader with such readerId already exists.");
     		
-    	RTPSMessageReader reader = new RTPSMessageReader(this, readerId, maxMessageSize, messageQueueSize);
+    	RTPSReader reader = new RTPSReader(this, readerId, maxMessageSize, messageQueueSize);
     	readerMap.put(guid, reader);
     	return reader;
     }
 	    
-    public RTPSMessageWriter createWriter(int writerId, int maxMessageSize, int messageQueueSize)
+    public RTPSWriter createWriter(int writerId, int maxMessageSize, int messageQueueSize)
     {
     	GUIDHolder guid = new GUIDHolder(GUIDPrefix.GUIDPREFIX.value, writerId);
 
     	if (writerMap.containsKey(guid))
     		throw new RuntimeException("Writer with such writerId already exists.");
     		
-    	RTPSMessageWriter writer = new RTPSMessageWriter(this, writerId, maxMessageSize, messageQueueSize);
+    	RTPSWriter writer = new RTPSWriter(this, writerId, maxMessageSize, messageQueueSize);
     	writerMap.put(guid, writer);
     	return writer;
     }
@@ -182,7 +182,7 @@ public class RTPSMessageProcessor extends RTPSMessageEndPoint
 					buffer.order(endianess);
 					
 					receiver.sourceGuidHolder.set(receiver.sourceGuidPrefix, receiver.writerId);
-					RTPSMessageReader reader = readerMap.get(receiver.readerId);
+					RTPSReader reader = readerMap.get(receiver.readerId);
 					if (reader != null)
 						reader.processDataSubMessage(octetsToInlineQos, buffer);
 						
@@ -198,7 +198,7 @@ public class RTPSMessageProcessor extends RTPSMessageEndPoint
 					buffer.order(endianess);
 
 					receiver.sourceGuidHolder.set(receiver.sourceGuidPrefix, receiver.readerId);
-					RTPSMessageReader reader = readerMap.get(receiver.sourceGuidHolder);
+					RTPSReader reader = readerMap.get(receiver.sourceGuidHolder);
 					if (reader != null)
 						reader.processHeartbeatSubMessage(buffer);
 					
@@ -214,7 +214,7 @@ public class RTPSMessageProcessor extends RTPSMessageEndPoint
 					buffer.order(endianess);
 
 					receiver.sourceGuidHolder.set(receiver.sourceGuidPrefix, receiver.writerId);
-					RTPSMessageWriter writer = writerMap.get(receiver.sourceGuidHolder);
+					RTPSWriter writer = writerMap.get(receiver.sourceGuidHolder);
 					if (writer != null)
 						writer.processAckNackSubMessage(buffer);
 					

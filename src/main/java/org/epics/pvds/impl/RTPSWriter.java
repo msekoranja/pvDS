@@ -21,7 +21,7 @@ import org.epics.pvds.Protocol.SubmessageHeader;
 import org.epics.pvds.util.BitSet;
 import org.epics.pvds.util.LongDynaHeap;
 
-public class RTPSMessageWriter {
+public class RTPSWriter {
 
 		protected final MessageReceiver receiver;
 		protected final MessageReceiverStatistics stats;
@@ -120,7 +120,7 @@ public class RTPSMessageWriter {
 
 		final ByteBuffer serializationBuffer;
 
-	    public RTPSMessageWriter(RTPSMessageProcessor processor,
+	    public RTPSWriter(RTPSParticipant processor,
 	    		int writerId, int maxMessageSize, int messageQueueSize) {
 	    	this.receiver = processor.getReceiver();
 	    	this.stats = processor.getStatistics();

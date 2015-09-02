@@ -3,10 +3,10 @@ package org.epics.pvds.test;
 import java.nio.ByteBuffer;
 
 import org.epics.pvds.impl.MessageReceiverStatistics;
-import org.epics.pvds.impl.RTPSMessageProcessor;
-import org.epics.pvds.impl.RTPSMessageReader;
-import org.epics.pvds.impl.RTPSMessageReader.SharedBuffer;
-import org.epics.pvds.impl.RTPSMessageWriter;
+import org.epics.pvds.impl.RTPSParticipant;
+import org.epics.pvds.impl.RTPSReader;
+import org.epics.pvds.impl.RTPSReader.SharedBuffer;
+import org.epics.pvds.impl.RTPSWriter;
 
 public class TestPVDS {
 
@@ -36,14 +36,14 @@ public class TestPVDS {
 		final int domainId = 0;
 	    final String multicastNIF = (args.length > 0) ? args[0] : null;
 	    
-	    final RTPSMessageProcessor processor = new RTPSMessageProcessor(multicastNIF, domainId);
+	    final RTPSParticipant processor = new RTPSParticipant(multicastNIF, domainId);
 	    processor.start();
 	    
 	    final long TIMEOUT_MS = 3000;
 	    
 	    if (isRx)
 	    {
-		    final RTPSMessageReader reader = processor.createReader(0, maxMessageSize, messageQueueSize);
+		    final RTPSReader reader = processor.createReader(0, maxMessageSize, messageQueueSize);
 		    while (true)
 		    {
 	    		long t1 = System.currentTimeMillis();
@@ -71,7 +71,7 @@ public class TestPVDS {
 	
 	    if (isTx)
 	    {
-		    final RTPSMessageWriter writer = processor.createWriter(0, maxMessageSize, messageQueueSize);
+		    final RTPSWriter writer = processor.createWriter(0, maxMessageSize, messageQueueSize);
 		    writer.start();
 		  
 		    int packageCounter = -1;

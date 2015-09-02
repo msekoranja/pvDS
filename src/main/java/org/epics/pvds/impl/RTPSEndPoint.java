@@ -18,7 +18,7 @@ import org.epics.pvds.util.InetAddressUtil;
  * The class itself is not thread-safe, i.e. processMessage() method should be called from only one thread. 
  * @author msekoranja
  */
-public class RTPSMessageEndPoint
+public class RTPSEndPoint
 {
 	protected final DatagramChannel discoveryMulticastChannel;
 	protected final DatagramChannel discoveryUnicastChannel;
@@ -51,7 +51,7 @@ public class RTPSMessageEndPoint
 		return discoveryMulticastPort;
 	}
 
-	public RTPSMessageEndPoint(String multicastNIF, int domainId) throws Throwable
+	public RTPSEndPoint(String multicastNIF, int domainId) throws Throwable
 	{
 		if (domainId > Protocol.MAX_DOMAIN_ID)
 			throw new IllegalArgumentException("domainId >= " + String.valueOf(Protocol.MAX_DOMAIN_ID));

@@ -20,7 +20,7 @@ import org.epics.pvds.Protocol.SubmessageHeader;
  * The class itself is not thread-safe, i.e. processSubMessage() method should be called from only one thread. 
  * @author msekoranja
  */
-public class RTPSMessageReader
+public class RTPSReader
 {
 	protected final MessageReceiver receiver;
     protected final MessageReceiverStatistics stats;
@@ -51,7 +51,7 @@ public class RTPSMessageReader
 	     * @param maxMessageSize maximum message size.
 	     * @param messageQueueSize message queue size (number of slots).
 	     */
-	    public RTPSMessageReader(RTPSMessageProcessor processor,
+	    public RTPSReader(RTPSParticipant processor,
 	    		int readerId, int maxMessageSize, int messageQueueSize) {
 			
 	    	this.receiver = processor.getReceiver();
