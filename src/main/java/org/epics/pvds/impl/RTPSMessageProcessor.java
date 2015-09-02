@@ -3,8 +3,11 @@ package org.epics.pvds.impl;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.epics.pvds.Protocol;
 import org.epics.pvds.Protocol.GUIDPrefix;
@@ -44,14 +47,14 @@ public class RTPSMessageProcessor extends RTPSMessageEndPoint
     	return reader;
     }
 	    
-    public RTPSMessageWriter createWriter(int writerId)
+    public RTPSMessageWriter createWriter(int writerId, int maxMessageSize, int messageQueueSize)
     {
     	GUIDHolder guid = new GUIDHolder(GUIDPrefix.GUIDPREFIX.value, writerId);
 
     	if (writerMap.containsKey(guid))
     		throw new RuntimeException("Writer with such writerId already exists.");
     		
-    	RTPSMessageWriter writer = new RTPSMessageWriter(this, writerId);
+    	RTPSMessageWriter writer = new RTPSMessageWriter(this, writerId, maxMessageSize, messageQueueSize);
     	writerMap.put(guid, writer);
     	return writer;
     }
@@ -240,6 +243,50 @@ public class RTPSMessageProcessor extends RTPSMessageEndPoint
     public final MessageReceiverStatistics getStatistics()
     {
     	return stats;
+    }
+    
+   private final AtomicBoolean started = new AtomicBoolean();
+   public final void start()
+    {
+	    new Thread(new Runnable() { 
+	    	public void run()
+	    	{
+	    		if (started.getAndSet(true))
+	    			return;
+	    		
+	    		try
+	    		{
+	    			discoveryMulticastChannel.configureBlocking(false);
+	
+		    		Selector selector = Selector.open();
+		    		discoveryMulticastChannel.register(selector, SelectionKey.OP_READ);
+		    		
+		    	    ByteBuffer buffer = ByteBuffer.allocate(65536);
+	    			
+		    	    // TODO stop
+	    			while (true)
+	    			{
+	    				// TODO let decide on timeout, e.g. rtpsReceiver.waitTime();
+	    				int keys = selector.select();
+	    				if (keys > 0)
+	    				{
+	    					// ACK all
+	    					selector.selectedKeys().clear();
+	    					
+		    				buffer.clear();
+				    	    SocketAddress receivedFrom = discoveryMulticastChannel.receive(buffer);
+				    	    buffer.flip();
+				    	    processMessage(receivedFrom, buffer);
+	    				}
+	    			}
+	    		}
+	    		catch (Throwable th) 
+	    		{
+	    			th.printStackTrace();
+	    		}
+	    	}
+	    }, "processor-rx-thread").start();
+    	
     }
     
 }

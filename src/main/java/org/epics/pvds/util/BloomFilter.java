@@ -3,8 +3,6 @@
  */
 package org.epics.pvds.util;
 
-import org.epics.pvdata.misc.BitSet;
-
 /**
  * This class implements a String Bloom filter.
  * Google CityHash64 (seed-less) hash function is being used
@@ -140,7 +138,6 @@ public class BloomFilter<T> {
 
 	@Override
 	public String toString() {
-		// TODO Auto-generated method stub
 		return super.toString() + " = { k = " + k + ", m = " + m + ", elements = " + elements + " -> p = " + p() + "}";
 	}
 	

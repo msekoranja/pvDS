@@ -11,7 +11,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.UUID;
 
-import org.epics.pvdata.misc.BitSet;
+import org.epics.pvds.util.BitSet;
 
 /**
  * @author msekoranja

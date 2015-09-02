@@ -11,7 +11,6 @@ import java.util.TreeSet;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-import org.epics.pvdata.pv.PVField;
 import org.epics.pvds.Protocol;
 import org.epics.pvds.Protocol.SequenceNumberSet;
 import org.epics.pvds.Protocol.SubmessageHeader;
@@ -41,7 +40,9 @@ public class RTPSMessageReader
 	    // TODO consider using "xyz<long, SharedBuffer>" alternative, with preallocated size
 	    // TODO consider using TreeSet
 	    private final TreeMap<Long, SharedBuffer> completedBuffers;
-	    
+	
+	    // TODO consider disruptor
+	    private final ArrayBlockingQueue<SharedBuffer> newDataQueue;
 
 	    /**
 	     * Constructor.
@@ -61,6 +62,8 @@ public class RTPSMessageReader
 			freeFragmentationBuffers = new ArrayDeque<FragmentationBufferEntry>(messageQueueSize);
 		    activeFragmentationBuffers = new TreeMap<Long, FragmentationBufferEntry>();
 		    completedBuffers = new TreeMap<Long, SharedBuffer>(); 
+		    
+		    newDataQueue = new ArrayBlockingQueue<SharedBuffer>(messageQueueSize);
 			
 		    ByteBuffer buffer = ByteBuffer.allocate(messageQueueSize*maxMessageSize);
 			
@@ -386,13 +389,6 @@ System.out.println("sn (" + sn + ") - first (" + first + ") >= 255 ("+ (sn - fir
 	    		sendAckNackResponse();
 	    }
 	    
-	    
-	    private void noData()
-	    {
-	    	// TODO
-	    	if (missingSequenceNumbers.size() > 0)
-	    		checkAckNackCondition();
-	    }
 	    
 	    void processDataSubMessage(int octetsToInlineQos, ByteBuffer buffer)
 	    {
@@ -824,11 +820,6 @@ System.out.println("missed some messages, promoting the following unfragmented m
 		
 		
 	    // TODO to be moved out
-	    
-	    // receiver side
-	    private final ArrayBlockingQueue<SharedBuffer> newDataQueue =
-	    		new ArrayBlockingQueue<SharedBuffer>(3);		// TODO config
-	    
 	    private void newDataNotify(SharedBuffer buffer)
 	    {
 	    	if (!newDataQueue.offer(buffer))
@@ -840,28 +831,15 @@ System.out.println("missed some messages, promoting the following unfragmented m
 	    }
 	    
 	    // TODO to be moved out
-	    public PVField waitForNewData(PVField data, long timeout) throws InterruptedException
+	    public SharedBuffer waitForNewData(long timeout) throws InterruptedException
 	    {
-	    	SharedBuffer buffer = newDataQueue.poll(timeout, TimeUnit.MILLISECONDS);
-	    	if (buffer == null)
-	    		return null;
-	    	else
-	    	{
-	    		try (SharedBuffer sb = buffer)
-	    		{
-	    			data.deserialize(sb.getBuffer(), PVDataSerialization.NOOP_DESERIALIZABLE_CONTROL);
-	    			return data;
-	    		}
-	    	}
+	    	return newDataQueue.poll(timeout, TimeUnit.MILLISECONDS);
 	    }
 	    
-	    
-	    
+		// TODO
 		private void missedSequencesNotify()
 		{
-			// TODO
 			System.out.println("missedSequencesNotify");
 		}
-
 
 	}

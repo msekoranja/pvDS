@@ -10,20 +10,18 @@ import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.epics.pvdata.misc.BitSet;
-import org.epics.pvdata.pv.Field;
-import org.epics.pvdata.pv.PVField;
-import org.epics.pvdata.pv.SerializableControl;
 import org.epics.pvds.Protocol;
 import org.epics.pvds.Protocol.SequenceNumberSet;
 import org.epics.pvds.Protocol.SubmessageHeader;
+import org.epics.pvds.util.BitSet;
 import org.epics.pvds.util.LongDynaHeap;
 
-public class RTPSMessageWriter implements SerializableControl {
+public class RTPSMessageWriter {
 
 		protected final MessageReceiver receiver;
 		protected final MessageReceiverStatistics stats;
@@ -32,7 +30,7 @@ public class RTPSMessageWriter implements SerializableControl {
 	    protected final DatagramChannel discoveryUnicastChannel;
 
 	    // this instance (writer) EntityId;
-		final int writerId;
+		private final int writerId;
 		
 	    private int lastAckNackCount = Integer.MIN_VALUE;
 	    
@@ -41,17 +39,15 @@ public class RTPSMessageWriter implements SerializableControl {
 	    // TODO to be configurable
 
 		// NOTE: Giga means 10^9 (not 1024^3)
-	    final double udpTxRateGbitPerSec = Double.valueOf(System.getProperty("RATE", "0.96")); // TODO !!
-	    final int MESSAGE_ALIGN = 32;
-	    final int MAX_PACKET_SIZE_BYTES_CONF = Integer.valueOf(System.getProperty("SIZE", "8000"));
-	    final int MAX_PACKET_SIZE_BYTES = (MAX_PACKET_SIZE_BYTES_CONF / MESSAGE_ALIGN) * MESSAGE_ALIGN;
-	    long delay_ns = (long)(MAX_PACKET_SIZE_BYTES * 8 / udpTxRateGbitPerSec);
+	    private final double udpTxRateGbitPerSec = Double.valueOf(System.getProperty("RATE", "0.96")); // TODO !!
+	    private final int MESSAGE_ALIGN = 32;
+	    private final int MAX_PACKET_SIZE_BYTES_CONF = Integer.valueOf(System.getProperty("SIZE", "8000"));
+	    private final int MAX_PACKET_SIZE_BYTES = (MAX_PACKET_SIZE_BYTES_CONF / MESSAGE_ALIGN) * MESSAGE_ALIGN;
+	    private long delay_ns = (long)(MAX_PACKET_SIZE_BYTES * 8 / udpTxRateGbitPerSec);
 	
-	    // TODO configurable
-	    final int SEND_BUFFER_SIZE_KB = 3*10*1024;		// TODO
-	    final int MIN_SEND_BUFFER_PACKETS = 2;
+	    private final int MIN_SEND_BUFFER_PACKETS = 2;
 	    
-	    final AtomicInteger resendRequestsPending = new AtomicInteger(0);
+	    private final AtomicInteger resendRequestsPending = new AtomicInteger(0);
 	    
 	    class BufferEntry {
 	    	final ByteBuffer buffer;
@@ -124,7 +120,8 @@ public class RTPSMessageWriter implements SerializableControl {
 
 		final ByteBuffer serializationBuffer;
 
-	    public RTPSMessageWriter(RTPSMessageProcessor processor, int writerId) {
+	    public RTPSMessageWriter(RTPSMessageProcessor processor,
+	    		int writerId, int maxMessageSize, int messageQueueSize) {
 	    	this.receiver = processor.getReceiver();
 	    	this.stats = processor.getStatistics();
 	    	this.discoveryUnicastChannel = processor.getDiscoveryUnicastChannel();
@@ -139,30 +136,37 @@ public class RTPSMessageWriter implements SerializableControl {
 				throw new RuntimeException(th);
 			}
 
-		    int bufferPacketsCount = (int)(SEND_BUFFER_SIZE_KB * 1024L / (MAX_PACKET_SIZE_BYTES+SPARE_BUFFER_SIZE));
-		    if (bufferPacketsCount < MIN_SEND_BUFFER_PACKETS)
-		    	throw new RuntimeException("send buffer to small");
+		    int requiredBufferSize = messageQueueSize * maxMessageSize;
+		    int packetSize = Math.min(maxMessageSize, MAX_PACKET_SIZE_BYTES);
 		    
-		    freeQueue = new ArrayBlockingQueue<BufferEntry>(bufferPacketsCount);
-		    sendQueue = new ArrayBlockingQueue<BufferEntry>(bufferPacketsCount);
+		    int bufferSlots = requiredBufferSize / packetSize;
+		    if (requiredBufferSize % packetSize != 0)
+		    	bufferSlots++;
+		    
+		    // make sure we have at least messageQueueSize or MIN_SEND_BUFFER_PACKETS slots
+		    bufferSlots = Math.max(bufferSlots, messageQueueSize);
+		    bufferSlots = Math.max(bufferSlots, MIN_SEND_BUFFER_PACKETS);
+		    
+		    freeQueue = new ArrayBlockingQueue<BufferEntry>(bufferSlots);
+		    sendQueue = new ArrayBlockingQueue<BufferEntry>(bufferSlots);
 
-		    ByteBuffer buffer = ByteBuffer.allocate(bufferPacketsCount*(MAX_PACKET_SIZE_BYTES+SPARE_BUFFER_SIZE));
+		    ByteBuffer buffer = ByteBuffer.allocate(bufferSlots*packetSize);
 		    serializationBuffer = buffer.duplicate();
 		
 		    //BufferEntry[] bufferPackets = new BufferEntry[bufferPacketsCount];
 		    int pos = 0;
-		    for (int i = 0; i < bufferPacketsCount; i++)
+		    for (int i = 0; i < bufferSlots; i++)
 		    {
-		    	buffer.limit(pos + MAX_PACKET_SIZE_BYTES);
+		    	buffer.limit(pos + packetSize);
 		    	buffer.position(pos);
-		    	pos += MAX_PACKET_SIZE_BYTES+SPARE_BUFFER_SIZE;
+		    	pos += packetSize;
 
 		    	//bufferPackets[i] = new BufferEntry(buffer.slice());
 		    	freeQueue.add(new BufferEntry(buffer.slice()));
 		    }
 		    
 		    // TODO use logging
-		    System.out.println("Transmitter: buffer size = " + bufferPacketsCount + " packets of " + MAX_PACKET_SIZE_BYTES + 
+		    System.out.println("Transmitter: buffer size = " + bufferSlots + " packets of " + packetSize + 
 		    				   " bytes, rate limit: " + udpTxRateGbitPerSec + "Gbit/sec (period: " + delay_ns + " ns)");
 
 		}
@@ -289,7 +293,7 @@ public class RTPSMessageWriter implements SerializableControl {
 	    private static final int DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN = 24;
 	    
 	    // no fragmentation
-	    private long addDataSubmessage(ByteBuffer buffer, PVField data, int dataSize)
+	    private long addDataSubmessage(ByteBuffer buffer, ByteBuffer data, int dataSize)
 	    {
 	    	// big endian, data flag
 	    	Protocol.addSubmessageHeader(buffer, SubmessageHeader.RTPS_DATA, (byte)0x04, 0x0000);
@@ -313,8 +317,7 @@ public class RTPSMessageWriter implements SerializableControl {
 		    
 		    // Data
 		    // must fit this buffer, this is not DATA_FRAG message
-		    // TODO use serialize() method that does not bound checks !!!
-		    data.serialize(buffer, PVDataSerialization.NOOP_SERIALIZABLE_CONTROL);
+		    buffer.put(data);
 		    
 		    // set message size
 		    int octetsToNextHeader = buffer.position() - octetsToNextHeaderPos - 2;
@@ -406,20 +409,6 @@ public class RTPSMessageWriter implements SerializableControl {
 		    
 		    // octetsToNextHeader is left to 0 (until end of the message)
 		    // this means this DataFrag message must be the last message 
-		    
-		    return sn;
-	    }
-
-	    // fragmentation
-	    private long addDataFragSubmessage(ByteBuffer buffer, PVField data, int dataSize)
-	    {
-	    	fragmentTotalSize = fragmentDataLeft = dataSize;
-	    	fragmentSize = 0;		// to be initialized later
-	    	fragmentStartingNum = 1;
-	    	
-	    	long sn = addDataFragSubmessageHeader(buffer);
-	    			    
-		    data.serialize(buffer, this);
 		    
 		    return sn;
 	    }
@@ -658,27 +647,39 @@ public class RTPSMessageWriter implements SerializableControl {
 		BufferEntry activeBufferEntry;
 		ByteBuffer activeBuffer;
 		
-		// TODO remove
-		public ByteBuffer getBuffer()
-		{
-			return serializationBuffer;
-		}
-		
 		// not thread-safe
-	    public long send(PVField data) throws InterruptedException
+	    public long send(ByteBuffer data) throws InterruptedException
 	    {
-	    	int dataSize = PVDataSerialization.getSerializationSize(data);
+	    	int dataSize = data.remaining();
 
 	    	takeFreeBuffer();
 		    
 	    	Protocol.addMessageHeader(serializationBuffer);
-		    // TODO put all necessary messages here
 		    
 		    if ((dataSize + DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN) <= MAX_PACKET_SIZE_BYTES)
 		    	addDataSubmessage(serializationBuffer, data, dataSize);
 		    else
-		    	addDataFragSubmessage(serializationBuffer, data, dataSize);
-
+		    {
+		    	fragmentTotalSize = fragmentDataLeft = dataSize;
+		    	fragmentSize = 0;		// to be initialized later
+		    	fragmentStartingNum = 1;
+		    	
+		    	// TODO what if all fragments do not fit into the buffer (e.g. only part of them)
+		    	while (true)
+		    	{
+		    		addDataFragSubmessageHeader(serializationBuffer);
+		    			
+		    		if (data.hasRemaining())
+		    		{
+		    			sendBuffer();
+		    			takeFreeBuffer();
+		    			Protocol.addMessageHeader(serializationBuffer);
+		    		}
+		    		else
+		    			break;
+		    	}
+		    }
+		    
 		    sendBuffer();
 		    
 		    return writerSequenceNumber.get();
@@ -744,87 +745,23 @@ public class RTPSMessageWriter implements SerializableControl {
 		    activeBufferEntry = null;
 	    	activeBuffer = null;
 	    }
-
-		final int SPARE_BUFFER_SIZE = 8;
-	    final byte[] spareBuffer = new byte[SPARE_BUFFER_SIZE];
-	    private int spareOverflow = 0;
 	    
-	    private boolean spareEnabled = false;
-	    private int preSpareLimit = 0;
-	    
-		@Override
-		public void flushSerializeBuffer() {
-			
-			try {
-				if (spareEnabled)
-				{
-					spareOverflow = serializationBuffer.position() - preSpareLimit;
-					if (spareOverflow < 0)
-					{
-						spareEnabled = false;
-						throw new RuntimeException("serialization logic exception");
-					}
-					
-					// save "overflow"
-					serializationBuffer.position(preSpareLimit);
-					serializationBuffer.get(spareBuffer);
-					
-					// fix limit
-					serializationBuffer.position(preSpareLimit);
-					serializationBuffer.limit(preSpareLimit);
-				}
-				else
-				{
-					// not full
-					if (serializationBuffer.hasRemaining())
-					{
-						preSpareLimit = serializationBuffer.limit();
-						serializationBuffer.limit(preSpareLimit + SPARE_BUFFER_SIZE);
-						spareEnabled = true;
-						return;
-					}
-				}
-				
-				sendBuffer();
-				takeFreeBuffer();
-				Protocol.addMessageHeader(serializationBuffer);
-				addDataFragSubmessageHeader(serializationBuffer);
-				
-				if (spareEnabled && spareOverflow > 0)
-				{
-					// TODO or not.... check if we have spareOverflow of free buffer...
-					serializationBuffer.put(spareBuffer, 0, spareOverflow);
-					spareOverflow = 0;
-					spareEnabled = false;
-				}
-					
-			} catch (InterruptedException e) {
-				throw new RuntimeException(e);
-			}
-
-			
-		}
-
-		@Override
-		public void ensureBuffer(int size) {
-			if (serializationBuffer.remaining() < size)
-			{
-				flushSerializeBuffer();
-
-				if (serializationBuffer.remaining() < size)
-					throw new RuntimeException("requested buffer size exceeds maximum payload size");
-			}
-		}
-
-		@Override
-		public void alignBuffer(int alignment) {
-			// TODO 
-		}
-
-		@Override
-		public void cachedSerialize(Field field, ByteBuffer buffer) {
-			// no-cache
-			field.serialize(buffer, this);
-		}
+	    private final AtomicBoolean started = new AtomicBoolean();
+	    public void start() {
+		    new Thread(new Runnable() {
+		    	public void run() {
+	    			if (started.getAndSet(true))
+	    				return;
+		    		try
+		    		{
+	    				sendProcess();
+		    		}
+		    		catch (Throwable th) 
+		    		{
+		    			th.printStackTrace();
+		    		}
+		    	}
+		    }, "writer-thread").start();
+	    }
 	    
 	}
