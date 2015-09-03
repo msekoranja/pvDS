@@ -204,10 +204,11 @@ public class RTPSWriter {
 			
 			int count = buffer.getInt();
 
+			// TODO lastAckNackCount is per reader !!!
 			// NOTE: warp concise comparison
-			if (count - lastAckNackCount > 0)
+//			if (count - lastAckNackCount > 0)
 			{
-				lastAckNackCount = count;
+//				lastAckNackCount = count;
 				
 				nack(readerSNState, (InetSocketAddress)receiver.receivedFrom);
 				//System.out.println("ACKNACK: " + readerSNState + " | " + count);
@@ -239,7 +240,7 @@ public class RTPSWriter {
 	    	ReaderEntry readerEntry = readerMap.get(receiver.sourceGuidHolder);
 	    	if (readerEntry == null)
 	    	{
-	    		System.out.println("new reader");
+	    		System.out.println("---------------------------------- new reader");
 	    		readerEntry = new ReaderEntry();
 	    		try {
 					readerMap.put((GUIDHolder)receiver.sourceGuidHolder.clone(), readerEntry);
@@ -514,7 +515,7 @@ public class RTPSWriter {
 	    
 	    // TODO make configurable
 	    private static long MIN_HEARTBEAT_TIMEOUT_MS = 1;
-	    private static long MAX_HEARTBEAT_TIMEOUT_MS = 64*1024;
+	    private static long MAX_HEARTBEAT_TIMEOUT_MS = 15*1024;
 	    private static long HEARTBEAT_PERIOD_MESSAGES = 100;		// send every 100 messages (if not sent otherwise)
 	    
 	    // TODO implement these

@@ -371,7 +371,8 @@ public class RTPSReader
 		    	}
 		    	// TODO what if we have more !!!
 	    	}
-	    	
+//System.out.println("sending ACKNACK: " + readerSNState.bitmapBase + ", " + readerSNState.bitmap);
+
 	    	ackNackBuffer.clear();
 	    	Protocol.addMessageHeader(ackNackBuffer);
 	    	addAckNackSubmessage(ackNackBuffer, readerSNState);

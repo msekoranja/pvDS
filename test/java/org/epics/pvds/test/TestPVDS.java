@@ -84,6 +84,8 @@ public class TestPVDS {
 	    		writerGUID = GUID.parse(args[2]);
 	    	}
 	    	
+		    System.out.println("Subscribing to writer GUID: " + writerGUID);
+
 	    	int lastReceivedPacketCount = -1; int totalMissed = 0;
 		    final RTPSReader reader = processor.createReader(0, writerGUID, maxMessageSize, messageQueueSize);
 		    while (true)
