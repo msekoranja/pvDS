@@ -1,6 +1,7 @@
 package org.epics.pvds.test;
 
 import java.nio.ByteBuffer;
+import java.nio.IntBuffer;
 
 import org.epics.pvds.Protocol.GUID;
 import org.epics.pvds.impl.MessageReceiverStatistics;
@@ -16,8 +17,8 @@ public class TestPVDS {
 	 */
 	public static void main(String[] args) throws Throwable {
 		
-		final int INT_COUNT = 1024;
-		ByteBuffer data = ByteBuffer.allocate(1024*Integer.BYTES);
+		final int INT_COUNT = 2048*1024;
+		ByteBuffer data = ByteBuffer.allocate(INT_COUNT*Integer.BYTES);
 		for (int i = 0; i < INT_COUNT; i++)
 			data.putInt(i);
 		
@@ -58,11 +59,13 @@ public class TestPVDS {
 				    	data.flip();
 				    	
 				    	long seqNo = writer.send(data); 
-						System.out.println(packageCounter + " / sent as " + seqNo);
-				    	if (!writer.waitUntilReceived(seqNo, TIMEOUT_MS))
+						//System.out.println(packageCounter + " / sent as " + seqNo);
+// TODO !!!
+				    	Thread.sleep(1000);
+				    	if (!writer.waitUntilAcked(seqNo, TIMEOUT_MS))
 				    		System.out.println(packageCounter + " / no ACK received for " + seqNo);
-				    	else
-				    		System.out.println(packageCounter + " / OK for " + seqNo);
+				    	//else
+				    		//System.out.println(packageCounter + " / OK for " + seqNo);
 				    }
 		    	} catch (Throwable th) {
 		    		th.printStackTrace();
@@ -90,8 +93,15 @@ public class TestPVDS {
 		    		else
 		    		{
 		        		long t2 = System.currentTimeMillis();
-						double bw = 8*(sb.getBuffer().remaining()*1000)/(double)(t2-t1)/1000/1000/1000;
-		    			System.out.printf("packet %d data received: bw = .3f Gbit/s\n", sb.getBuffer().getInt(0), bw);
+						double bw = 8*((long)sb.getBuffer().remaining()*1000)/(double)(t2-t1)/1000/1000/1000;
+						
+		    			IntBuffer intBuffer = sb.getBuffer().asIntBuffer();
+		    			int packetCount = intBuffer.get();
+		    			int expectedValue = 1; boolean valid = true;
+		    			while (valid && intBuffer.hasRemaining())
+		    				valid = (intBuffer.get() == expectedValue++);
+						
+		    			System.out.printf("packet %d data received: bw = %.3f Gbit/s, valid data: %b\n", packetCount, bw, valid);
 		    		}
 	
 		    		MessageReceiverStatistics stats = processor.getStatistics();

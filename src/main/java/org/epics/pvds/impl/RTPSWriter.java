@@ -35,17 +35,17 @@ public class RTPSWriter {
 	    // this instance (writer) EntityId;
 		private final int writerId;
 		
-	    private int lastAckNackCount = Integer.MIN_VALUE;
+	    private int lastAckNackCount = -1;
 	    
 	    private final SequenceNumberSet readerSNState = new SequenceNumberSet();
 	    
 	    // TODO to be configurable
 
 		// NOTE: Giga means 10^9 (not 1024^3)
-	    private final double udpTxRateGbitPerSec = Double.valueOf(System.getProperty("RATE", "0.96")); // TODO !!
+	    private final double udpTxRateGbitPerSec = Double.valueOf(System.getProperty("RATE", "0.90")); // TODO !!!
 	    private final int MESSAGE_ALIGN = 32;
 	    private final int MAX_PACKET_SIZE_BYTES_CONF = Integer.valueOf(System.getProperty("SIZE", "8000"));
-	    private final int MAX_PACKET_SIZE_BYTES = (MAX_PACKET_SIZE_BYTES_CONF / MESSAGE_ALIGN) * MESSAGE_ALIGN;
+	    private final int MAX_PACKET_SIZE_BYTES = ((MAX_PACKET_SIZE_BYTES_CONF + MESSAGE_ALIGN - 1) / MESSAGE_ALIGN) * MESSAGE_ALIGN;
 	    private long delay_ns = (long)(MAX_PACKET_SIZE_BYTES * 8 / udpTxRateGbitPerSec);
 	
 	    private final int MIN_SEND_BUFFER_PACKETS = 2;
@@ -140,17 +140,17 @@ public class RTPSWriter {
 			}
 
 		    // add space for header(s)
-		    maxMessageSize += DATA_HEADER_LEN + DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN;
+		    int packetSize = maxMessageSize + DATA_HEADER_LEN + DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN;
+		    int bufferSlots = messageQueueSize;
 		    
-		    int requiredBufferSize = messageQueueSize * maxMessageSize;
-		    int packetSize = Math.min(maxMessageSize, MAX_PACKET_SIZE_BYTES);
-		    
-		    int bufferSlots = requiredBufferSize / packetSize;
-		    if (requiredBufferSize % packetSize != 0)
-		    	bufferSlots++;
-		    
-		    // make sure we have at least messageQueueSize or MIN_SEND_BUFFER_PACKETS slots
-		    bufferSlots = Math.max(bufferSlots, messageQueueSize);
+		    if (packetSize > MAX_PACKET_SIZE_BYTES)
+		    {
+			    int slotsPerMessage = (maxMessageSize + MAX_PACKET_SIZE_BYTES - 1) / MAX_PACKET_SIZE_BYTES;
+			    bufferSlots *= slotsPerMessage;
+			    packetSize = MAX_PACKET_SIZE_BYTES;
+		    }
+		    	
+		    // make sure we have at least MIN_SEND_BUFFER_PACKETS slots
 		    bufferSlots = Math.max(bufferSlots, MIN_SEND_BUFFER_PACKETS);
 		    
 		    freeQueue = new ArrayBlockingQueue<BufferEntry>(bufferSlots);
@@ -275,7 +275,7 @@ public class RTPSWriter {
 	    	}
 	    }
 
-	    public boolean waitUntilReceived(long seqNo, long timeout) throws InterruptedException
+	    public boolean waitUntilAcked(long seqNo, long timeout) throws InterruptedException
 	    {
 	    	//if (seqNo <= lastHeartbeatFirstSN)
 
@@ -667,6 +667,8 @@ public class RTPSWriter {
 		    	addDataSubmessage(serializationBuffer, data, dataSize);
 		    else
 		    {
+		    	// TODO check for availability of all buffers? or go ahead and hope for the best?
+		    	
 		    	fragmentTotalSize = fragmentDataLeft = dataSize;
 		    	fragmentSize = 0;		// to be initialized later
 		    	fragmentStartingNum = 1;
@@ -675,15 +677,25 @@ public class RTPSWriter {
 		    	while (true)
 		    	{
 		    		addDataFragSubmessageHeader(serializationBuffer);
-		    			
-		    		if (data.hasRemaining())
+		    		
+		    		int dataRemaining = data.remaining();
+		    		int bufferRemaining = serializationBuffer.remaining();
+		    		if (dataRemaining > bufferRemaining)
 		    		{
+			    		int limit = data.limit();
+			    		data.limit(data.position() + bufferRemaining);
+			    		serializationBuffer.put(data);
+			    		data.limit(limit);
+			    		
 		    			sendBuffer();
 		    			takeFreeBuffer();
 		    			Protocol.addMessageHeader(serializationBuffer);
 		    		}
 		    		else
+		    		{
+			    		serializationBuffer.put(data);
 		    			break;
+		    		}
 		    	}
 		    }
 		    

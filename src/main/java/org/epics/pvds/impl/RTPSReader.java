@@ -138,7 +138,13 @@ public class RTPSReader
 	    	synchronized (freeFragmentationBuffers) {
 		    	entry = freeFragmentationBuffers.pollLast();
 		    	if (entry != null)
+		    	{
+		    		// sanity check
+		    		if (entry.seqNo != 0)
+			    		throw new AssertionError(entry.seqNo != 0);
+		    		
 		    		entry.reset(firstSegmentSeqNo, dataSize, fragmentSize);
+		    	}
 			}
 	    	
 	    	if (entry == null)
@@ -164,10 +170,6 @@ public class RTPSReader
 	    			entry.reset(firstSegmentSeqNo, dataSize, fragmentSize);
 				}
 				*/
-	    	}
-	    	else if (entry.seqNo != 0)
-	    	{
-	    		throw new AssertionError(entry.seqNo != 0);
 	    	}
 	    	
 	    	activeFragmentationBuffers.put(firstSegmentSeqNo, entry);
@@ -270,8 +272,7 @@ public class RTPSReader
 		    		return false;
 	    	}
 	    	
-	    	// NOTE: to be called only once !!!
-	    	// TODO can be called from other thread !!! sync seqNo!!!
+	    	// TODO can be called from other thread, more than once
 	    	void release()
 	    	{
 //System.out.println(seqNo + " release");
@@ -306,7 +307,7 @@ public class RTPSReader
 	    	
 	    }
 	    
-	    private int lastHeartbeatCount = Integer.MIN_VALUE;
+	    private int lastHeartbeatCount = -1;
 	    
 	    private final SequenceNumberSet readerSNState = new SequenceNumberSet();
 	    
@@ -336,7 +337,7 @@ public class RTPSReader
 	    private final ByteBuffer ackNackBuffer = ByteBuffer.allocate(128);
 	    private boolean sendAckNackResponse(long timestamp)
 	    {
-	    	System.out.println("missing SN count:" + missingSequenceNumbers.size());
+	    	//System.out.println("missing SN count:" + missingSequenceNumbers.size());
 	    	if (missingSequenceNumbers.isEmpty())
 	    	{
 	    		// we ACK all sequence numbers until maxReceivedSequenceNumber
@@ -388,7 +389,7 @@ System.out.println("sn (" + sn + ") - first (" + first + ") >= 255 ("+ (sn - fir
 
 	    private void checkAckNackCondition()
 	    {
-	    	if (System.currentTimeMillis() - lastAckNackTimestamp > 3)
+	    	// TODO !!!if (System.currentTimeMillis() - lastAckNackTimestamp > 3)
 	    		sendAckNackResponse();
 	    }
 	    
@@ -654,7 +655,7 @@ System.out.println(firstFragmentSeqNo + " put on completedBuffers");
 				lastHeartbeatCount = count;
 			
 				// TODO remove
-				System.out.println("HEARTBEAT: " + firstSN + " -> " + lastSN + " | " + count);
+				//System.out.println("HEARTBEAT: " + firstSN + " -> " + lastSN + " | " + count);
 				
 				if (lastSN > lastKnownSequenceNumber)
 					lastKnownSequenceNumber = lastSN;

@@ -55,6 +55,7 @@ public class RTPSParticipant extends RTPSEndPoint
 
     	// TODO destroy mapping
     	// mapping
+    	System.out.println("Mapping writer " + writerGUID + " -> reader " + guid);
     	writer2readerMapping.put(new GUIDHolder(writerGUID), reader);
     	
     	return reader;
@@ -195,10 +196,12 @@ public class RTPSParticipant extends RTPSEndPoint
 					buffer.order(endianess);
 					
 					receiver.sourceGuidHolder.set(receiver.sourceGuidPrefix, receiver.writerId);
-					RTPSReader reader = writer2readerMapping.get(receiver.readerId);
+					RTPSReader reader = writer2readerMapping.get(receiver.sourceGuidHolder);
 					if (reader != null)
 						reader.processDataSubMessage(octetsToInlineQos, buffer);
-						
+					else
+						System.out.println("no writer -> reader mapping");
+					
 					break;
 				}
 				
@@ -214,6 +217,8 @@ public class RTPSParticipant extends RTPSEndPoint
 					RTPSReader reader = writer2readerMapping.get(receiver.sourceGuidHolder);
 					if (reader != null)
 						reader.processHeartbeatSubMessage(buffer);
+					else
+						System.out.println("no writer -> reader mapping");
 					
 					break;
 				}
@@ -230,6 +235,8 @@ public class RTPSParticipant extends RTPSEndPoint
 					RTPSWriter writer = reader2writerMapping.get(receiver.sourceGuidHolder);
 					if (writer != null)
 						writer.processAckNackSubMessage(buffer);
+					else
+						System.out.println("no reader -> writer mapping");
 					
 					break;
 				}
