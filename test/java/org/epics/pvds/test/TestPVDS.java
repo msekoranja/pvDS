@@ -46,7 +46,7 @@ public class TestPVDS {
 	    GUID writerGUID = null;
 	    if (isTx)
 	    {
-		    final RTPSWriter writer = processor.createWriter(0, maxMessageSize, messageQueueSize);
+		    final RTPSWriter writer = processor.createWriter(0x12345678, maxMessageSize, messageQueueSize);
 		    writerGUID = writer.getGUID();
 		    System.out.println("Writer GUID: " + writerGUID);
 		    writer.start();
@@ -61,7 +61,7 @@ public class TestPVDS {
 				    	
 				    	long seqNo = writer.send(data); 
 						//System.out.println(packageCounter + " / sent as " + seqNo);
-				    	if (!writer.waitUntilAcked(seqNo, TIMEOUT_MS))
+				    	if (!writer.waitUntilAcked(seqNo, Long.MAX_VALUE /*TIMEOUT_MS*/))
 				    		System.out.println(packageCounter + " / no ACK received for " + seqNo);
 				    	//else
 				    		//System.out.println(packageCounter + " / OK for " + seqNo);

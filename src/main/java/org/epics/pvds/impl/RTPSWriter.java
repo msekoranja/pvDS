@@ -286,9 +286,14 @@ public class RTPSWriter {
 	    			return true;
 	    		
 	    		waitForAckedSeqNo.set(seqNo);
+	    		long l1 = System.currentTimeMillis();
 	    		while (seqNo > lastAckedSeqNo)
 	    		{
 		    		ackMonitor.wait(timeout);
+		    		
+		    		// spurious wake-up check
+		    		if ((System.currentTimeMillis() - l1) >= timeout)
+		    			break;
 	    		}
 	    		
 	    		waitForAckedSeqNo.set(0);

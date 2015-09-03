@@ -198,7 +198,7 @@ public class RTPSParticipant extends RTPSEndPoint
 					RTPSReader reader = writer2readerMapping.get(receiver.sourceGuidHolder);
 					if (reader != null)
 						reader.processDataSubMessage(octetsToInlineQos, buffer);
-					
+
 					break;
 				}
 				
@@ -210,7 +210,7 @@ public class RTPSParticipant extends RTPSEndPoint
 					receiver.writerId = buffer.getInt();
 					buffer.order(endianess);
 
-					receiver.sourceGuidHolder.set(receiver.sourceGuidPrefix, receiver.readerId);
+					receiver.sourceGuidHolder.set(receiver.sourceGuidPrefix, receiver.writerId);
 					RTPSReader reader = writer2readerMapping.get(receiver.sourceGuidHolder);
 					if (reader != null)
 						reader.processHeartbeatSubMessage(buffer);
