@@ -53,7 +53,6 @@ public class RTPSParticipant extends RTPSEndPoint
 
     	// TODO destroy mapping
     	// mapping
-    	System.out.println("Mapping writer " + writerGUID + " -> reader " + guid);
     	writer2readerMapping.put(new GUIDHolder(writerGUID), reader);
     	
     	return reader;
@@ -226,7 +225,7 @@ public class RTPSParticipant extends RTPSEndPoint
 					receiver.readerId = buffer.getInt();
 					receiver.writerId = buffer.getInt();
 					buffer.order(endianess);
-					
+	
 					receiver.sourceGuidHolder.set(receiver.sourceGuidPrefix, receiver.readerId);
 
 					// ACKNACK is an unicast response, use local GUID + receiver.writerId
@@ -234,7 +233,7 @@ public class RTPSParticipant extends RTPSEndPoint
 					RTPSWriter writer = writers.get(localWriterGUID);
 					if (writer != null)
 						writer.processAckNackSubMessage(buffer);
-					
+
 					break;
 				}
 				

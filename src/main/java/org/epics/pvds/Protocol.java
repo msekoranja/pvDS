@@ -12,6 +12,7 @@ import java.nio.ByteOrder;
 import java.util.UUID;
 
 import org.epics.pvds.util.BitSet;
+import org.epics.pvds.util.HexDump;
 
 /**
  * @author msekoranja
@@ -143,6 +144,41 @@ public final class Protocol {
 		public GUID(GUIDPrefix prefix, EntityId entityId) {
 			this.prefix = prefix;
 			this.entityId = entityId;
+		}
+
+		@Override
+		public String toString() {
+			StringBuffer b = new StringBuffer(32);
+			for (byte v : prefix.value)
+				b.append(HexDump.toHex(v));
+			int entityValue = entityId.value;
+			byte b1 = (byte)(entityValue & 0xFF); entityValue >>>= 8;
+			byte b2 = (byte)(entityValue & 0xFF); entityValue >>>= 8;
+			byte b3 = (byte)(entityValue & 0xFF); entityValue >>>= 8;
+			byte b4 = (byte)(entityValue & 0xFF); 
+			b.append(HexDump.toHex(b4));
+			b.append(HexDump.toHex(b3));
+			b.append(HexDump.toHex(b2));
+			b.append(HexDump.toHex(b1));
+			return b.toString();
+		}
+
+		public static GUID parse(String str)
+		{
+			if (str.length() != 32)
+				throw new IllegalArgumentException("string not a valid GUID");
+			
+			byte[] prefix = new byte[12];
+			for (int i = 0; i < 12; i++)
+				prefix[i] = (byte)Integer.parseInt(str.substring(i*2,i*2+2), 16);
+			
+			byte b1 = (byte)Integer.parseInt(str.substring(24, 26), 16);
+			byte b2 = (byte)Integer.parseInt(str.substring(26, 28), 16);
+			byte b3 = (byte)Integer.parseInt(str.substring(28, 30), 16);
+			byte b4 = (byte)Integer.parseInt(str.substring(30, 32), 16);
+			int entityValue = b1 << 24 | b2 << 16 | b3 << 8 | b4;
+			
+			return new GUID(new GUIDPrefix(prefix), new EntityId(entityValue));
 		}
 		
 	}

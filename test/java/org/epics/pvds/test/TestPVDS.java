@@ -48,6 +48,7 @@ public class TestPVDS {
 	    {
 		    final RTPSWriter writer = processor.createWriter(0, maxMessageSize, messageQueueSize);
 		    writerGUID = writer.getGUID();
+		    System.out.println("Writer GUID: " + writerGUID);
 		    writer.start();
 		    
 		    new Thread(() -> {
@@ -60,8 +61,6 @@ public class TestPVDS {
 				    	
 				    	long seqNo = writer.send(data); 
 						//System.out.println(packageCounter + " / sent as " + seqNo);
-// TODO !!!
-				    	//Thread.sleep(1000);
 				    	if (!writer.waitUntilAcked(seqNo, TIMEOUT_MS))
 				    		System.out.println(packageCounter + " / no ACK received for " + seqNo);
 				    	//else
@@ -78,8 +77,11 @@ public class TestPVDS {
 	    {
 	    	if (writerGUID == null)
 	    	{
+	    		if (args.length < 3)
+	    			throw new RuntimeException("provide writer GUID as third argument");
+	    		
 	    		// parse args[2]
-	    		throw new RuntimeException("no writer GUID parsing implemented");
+	    		writerGUID = GUID.parse(args[2]);
 	    	}
 	    	
 	    	int lastReceivedPacketCount = -1; int totalMissed = 0;
