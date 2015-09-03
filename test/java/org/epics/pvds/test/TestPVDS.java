@@ -81,6 +81,8 @@ public class TestPVDS {
 	    		// parse args[2]
 	    		throw new RuntimeException("no writer GUID parsing implemented");
 	    	}
+	    	
+	    	int lastReceivedPacketCount = -1; int totalMissed = 0;
 		    final RTPSReader reader = processor.createReader(0, writerGUID, maxMessageSize, messageQueueSize);
 		    while (true)
 		    {
@@ -89,7 +91,9 @@ public class TestPVDS {
 		    	try (SharedBuffer sb = reader.waitForNewData(TIMEOUT_MS))
 		    	{
 		    		if (sb == null)
-		    			System.out.println("no data");
+		    		{
+		    			System.err.println("no data");
+		    		}
 		    		else
 		    		{
 		        		long t2 = System.currentTimeMillis();
@@ -101,7 +105,18 @@ public class TestPVDS {
 		    			while (valid && intBuffer.hasRemaining())
 		    				valid = (intBuffer.get() == expectedValue++);
 						
-		    			System.out.printf("packet %d data received: bw = %.3f Gbit/s, valid data: %b\n", packetCount, bw, valid);
+		    			if (lastReceivedPacketCount != -1 && (packetCount - lastReceivedPacketCount) > 1)
+		    			{
+		    				int missed = packetCount - lastReceivedPacketCount;
+		    				totalMissed += missed;
+		    				System.err.println("missed:" + missed);
+		    			}
+		    			lastReceivedPacketCount = packetCount;
+		    				
+		    			System.out.printf("packet %d data received: bw = %.3f Gbit/s, valid data: %b / totalMissed: %d\n", packetCount, bw, valid, totalMissed);
+
+		    			if (!valid)
+		    				System.exit(1);
 		    		}
 	
 		    		MessageReceiverStatistics stats = processor.getStatistics();

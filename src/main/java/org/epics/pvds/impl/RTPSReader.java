@@ -362,7 +362,7 @@ public class RTPSReader
 		    		{
 		    			// TODO imagine this case 100, 405...500
 		    			// in this case readerSNState can report only 100!!!
-System.out.println("sn (" + sn + ") - first (" + first + ") >= 255 ("+ (sn - first) + ")");	
+//System.out.println("sn (" + sn + ") - first (" + first + ") >= 255 ("+ (sn - first) + ")");	
 		    			// send NACK only message
 		    			break;
 		    		}
@@ -669,7 +669,7 @@ System.out.println(firstFragmentSeqNo + " put on completedBuffers");
 				lastHeartbeatCount = count;
 			
 				// TODO remove
-				System.out.println("HEARTBEAT: " + firstSN + " -> " + lastSN + " | " + count);
+				//System.out.println("HEARTBEAT: " + firstSN + " -> " + lastSN + " | " + count);
 				
 				if (lastSN > lastKnownSequenceNumber)
 					lastKnownSequenceNumber = lastSN;

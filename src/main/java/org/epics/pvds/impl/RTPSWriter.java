@@ -210,7 +210,7 @@ public class RTPSWriter {
 				lastAckNackCount = count;
 				
 				nack(readerSNState, (InetSocketAddress)receiver.receivedFrom);
-				System.out.println("ACKNACK: " + readerSNState + " | " + count);
+				//System.out.println("ACKNACK: " + readerSNState + " | " + count);
 
 				// ack (or receiver does not care anymore) all before readerSNState.bitmapBase
 				ack(readerSNState.bitmapBase);
@@ -234,7 +234,7 @@ public class RTPSWriter {
 	    private void ack(long ackSeqNo)
 	    {
 	    	// NOTE: ackSeqNo is acked seqNo + 1
-	    	System.out.println("ACK: " + ackSeqNo);
+	    	//System.out.println("ACK: " + ackSeqNo);
 
 	    	ReaderEntry readerEntry = readerMap.get(receiver.sourceGuidHolder);
 	    	if (readerEntry == null)
@@ -460,7 +460,7 @@ public class RTPSWriter {
 	    // recovery marker
 	    protected final void nack(SequenceNumberSet readerSNState, InetSocketAddress recoveryAddress)
 	    {
-			System.out.println("NACK: " + readerSNState + " / LAST OVERRIDEN SEQNO:" + lastOverridenSeqNo.get());
+			//System.out.println("NACK: " + readerSNState + " / LAST OVERRIDEN SEQNO:" + lastOverridenSeqNo.get());
 
 			long base = readerSNState.bitmapBase;
 	    	BitSet bitSet = readerSNState.bitmap;
