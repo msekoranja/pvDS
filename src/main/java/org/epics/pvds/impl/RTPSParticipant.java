@@ -3,6 +3,7 @@ package org.epics.pvds.impl;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.util.HashMap;
@@ -36,9 +37,6 @@ public class RTPSParticipant extends RTPSEndPoint
     private static final int INITIAL_W2R_CAPACITY = 16;
     protected final Map<GUIDHolder, RTPSReader> writer2readerMapping = new HashMap<GUIDHolder, RTPSReader>(INITIAL_W2R_CAPACITY);
    
-    private static final int INITIAL_R2W_CAPACITY = 16;
-    protected final Map<GUIDHolder, RTPSWriter> reader2writerMapping = new HashMap<GUIDHolder, RTPSWriter>(INITIAL_R2W_CAPACITY);
-    
     public RTPSParticipant(String multicastNIF, int domainId) throws Throwable {
 		super(multicastNIF, domainId);
 	}
@@ -50,7 +48,7 @@ public class RTPSParticipant extends RTPSEndPoint
     	if (readers.containsKey(guid))
     		throw new RuntimeException("Reader with such readerId already exists.");
     		
-    	RTPSReader reader = new RTPSReader(this, readerId, maxMessageSize, messageQueueSize);
+    	RTPSReader reader = new RTPSReader(this, readerId, writerGUID.entityId.value, maxMessageSize, messageQueueSize);
     	readers.put(guid, reader);
 
     	// TODO destroy mapping
@@ -72,6 +70,8 @@ public class RTPSParticipant extends RTPSEndPoint
     	writers.put(guid, writer);
     	return writer;
     }
+
+    private final GUIDHolder localWriterGUID = new GUIDHolder();
 
     // not thread-safe
     public final boolean processMessage(SocketAddress receivedFrom, ByteBuffer buffer)
@@ -199,8 +199,6 @@ public class RTPSParticipant extends RTPSEndPoint
 					RTPSReader reader = writer2readerMapping.get(receiver.sourceGuidHolder);
 					if (reader != null)
 						reader.processDataSubMessage(octetsToInlineQos, buffer);
-					else
-						System.out.println("no writer -> reader mapping");
 					
 					break;
 				}
@@ -217,8 +215,6 @@ public class RTPSParticipant extends RTPSEndPoint
 					RTPSReader reader = writer2readerMapping.get(receiver.sourceGuidHolder);
 					if (reader != null)
 						reader.processHeartbeatSubMessage(buffer);
-					else
-						System.out.println("no writer -> reader mapping");
 					
 					break;
 				}
@@ -230,13 +226,14 @@ public class RTPSParticipant extends RTPSEndPoint
 					receiver.readerId = buffer.getInt();
 					receiver.writerId = buffer.getInt();
 					buffer.order(endianess);
+					
+					receiver.sourceGuidHolder.set(receiver.sourceGuidPrefix, receiver.readerId);
 
-					receiver.sourceGuidHolder.set(receiver.sourceGuidPrefix, receiver.writerId);
-					RTPSWriter writer = reader2writerMapping.get(receiver.sourceGuidHolder);
+					// ACKNACK is an unicast response, use local GUID + receiver.writerId
+					localWriterGUID.set(GUIDPrefix.GUIDPREFIX.value, receiver.writerId);
+					RTPSWriter writer = writers.get(localWriterGUID);
 					if (writer != null)
 						writer.processAckNackSubMessage(buffer);
-					else
-						System.out.println("no reader -> writer mapping");
 					
 					break;
 				}
@@ -274,10 +271,16 @@ public class RTPSParticipant extends RTPSEndPoint
     		
     		try
     		{
-    			discoveryMulticastChannel.configureBlocking(false);
-
 	    		Selector selector = Selector.open();
-	    		discoveryMulticastChannel.register(selector, SelectionKey.OP_READ);
+
+	    		// readers
+	    		discoveryMulticastChannel.configureBlocking(false);
+	    		discoveryMulticastChannel.register(selector, SelectionKey.OP_READ, discoveryMulticastChannel);
+	    		
+	    		// writers (receiving ACKNACK)
+	    		discoveryUnicastChannel.configureBlocking(false);
+	    		discoveryUnicastChannel.register(selector, SelectionKey.OP_READ, discoveryUnicastChannel);
+	    		
 	    		
 	    	    ByteBuffer buffer = ByteBuffer.allocate(65536);
     			
@@ -288,13 +291,18 @@ public class RTPSParticipant extends RTPSEndPoint
     				int keys = selector.select();
     				if (keys > 0)
     				{
-    					// ACK all
-    					selector.selectedKeys().clear();
-    					
-	    				buffer.clear();
-			    	    SocketAddress receivedFrom = discoveryMulticastChannel.receive(buffer);
-			    	    buffer.flip();
-			    	    processMessage(receivedFrom, buffer);
+	    				for (SelectionKey key : selector.selectedKeys())
+	    				{
+	    					try {
+			    				buffer.clear();
+					    	    SocketAddress receivedFrom = ((DatagramChannel)key.attachment()).receive(buffer);
+					    	    buffer.flip();
+					    	    processMessage(receivedFrom, buffer);
+	    					} catch (Throwable th) {
+	    						th.printStackTrace();
+	    					}
+	    				}
+	    				selector.selectedKeys().clear();
     				}
     			}
     		}

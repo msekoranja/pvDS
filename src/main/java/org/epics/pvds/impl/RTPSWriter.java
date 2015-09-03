@@ -210,7 +210,7 @@ public class RTPSWriter {
 				lastAckNackCount = count;
 				
 				nack(readerSNState, (InetSocketAddress)receiver.receivedFrom);
-				//System.out.println("ACKNACK: " + readerSNState + " | " + count);
+				System.out.println("ACKNACK: " + readerSNState + " | " + count);
 
 				// ack (or receiver does not care anymore) all before readerSNState.bitmapBase
 				ack(readerSNState.bitmapBase);
@@ -222,7 +222,6 @@ public class RTPSWriter {
 	    	LongDynaHeap.HeapMapElement ackSeqNoHeapElement;
 	    }
 	    
-	    private final GUIDHolder guidHasher = new GUIDHolder();
 	    
 	    private static final int INITIAL_READER_CAPACITY = 16;
 	    private final Map<GUIDHolder, ReaderEntry> readerMap = new HashMap<GUIDHolder, ReaderEntry>(INITIAL_READER_CAPACITY);
@@ -234,16 +233,16 @@ public class RTPSWriter {
 	    private final AtomicLong waitForAckedSeqNo = new AtomicLong(0);
 	    private void ack(long ackSeqNo)
 	    {
+	    	// NOTE: ackSeqNo is acked seqNo + 1
 	    	System.out.println("ACK: " + ackSeqNo);
-	    	guidHasher.set(receiver.sourceGuidPrefix,  receiver.readerId);
 
-	    	ReaderEntry readerEntry = readerMap.get(guidHasher);
+	    	ReaderEntry readerEntry = readerMap.get(receiver.sourceGuidHolder);
 	    	if (readerEntry == null)
 	    	{
 	    		System.out.println("new reader");
 	    		readerEntry = new ReaderEntry();
 	    		try {
-					readerMap.put((GUIDHolder)guidHasher.clone(), readerEntry);
+					readerMap.put((GUIDHolder)receiver.sourceGuidHolder.clone(), readerEntry);
 				} catch (CloneNotSupportedException e) {
 					// noop
 				}
@@ -256,17 +255,17 @@ public class RTPSWriter {
 
 	    	readerEntry.lastAliveTime = System.currentTimeMillis(); // TODO get from receiverStatistic?
 	    	
-	    	System.out.println(guidHasher.hashCode() + " : " + ackSeqNo);
+	    	//System.out.println(receiver.sourceGuidHolder.hashCode() + " : " + ackSeqNo);
 	    	
 	    	long waitedAckSeqNo = waitForAckedSeqNo.get();
-	    	System.out.println("\twaited:" + waitedAckSeqNo);
+	    	//System.out.println("\twaited:" + waitedAckSeqNo);
 	    	if (waitedAckSeqNo > 0 && minAckSeqNoHeap.size() > 0)
 	    	{
 	    		long minSeqNo = minAckSeqNoHeap.peek().getValue();
-	    	System.out.println("\tmin:" + minSeqNo);
+	    		//System.out.println("\tmin:" + minSeqNo);
 	    		if (minSeqNo >= waitedAckSeqNo)
 	    		{
-	    			System.out.println("reporting min: " + minSeqNo);
+	    			//System.out.println("reporting min: " + minSeqNo);
 					synchronized (ackMonitor) {
 						lastAckedSeqNo = minSeqNo;
 						ackMonitor.notifyAll();
@@ -277,21 +276,23 @@ public class RTPSWriter {
 
 	    public boolean waitUntilAcked(long seqNo, long timeout) throws InterruptedException
 	    {
-	    	//if (seqNo <= lastHeartbeatFirstSN)
+		    // NOTE: seqNo is really expectedSeqNo + 1
+	    	
+	    	//TODO if (seqNo <= lastHeartbeatFirstSN)
 
 	    	synchronized (ackMonitor) {
 
-	    		if (seqNo >= lastAckedSeqNo)
+	    		if (seqNo <= lastAckedSeqNo)
 	    			return true;
 	    		
 	    		waitForAckedSeqNo.set(seqNo);
-	    		while (seqNo >= lastAckedSeqNo)
+	    		while (seqNo > lastAckedSeqNo)
 	    		{
 		    		ackMonitor.wait(timeout);
 	    		}
 	    		
 	    		waitForAckedSeqNo.set(0);
-	    		return (seqNo < lastAckedSeqNo) ? true : false;
+	    		return (seqNo <= lastAckedSeqNo) ? true : false;
 	    	}
 	    }
 

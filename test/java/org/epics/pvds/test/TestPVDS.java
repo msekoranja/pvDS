@@ -61,7 +61,7 @@ public class TestPVDS {
 				    	long seqNo = writer.send(data); 
 						//System.out.println(packageCounter + " / sent as " + seqNo);
 // TODO !!!
-				    	Thread.sleep(1000);
+				    	//Thread.sleep(1000);
 				    	if (!writer.waitUntilAcked(seqNo, TIMEOUT_MS))
 				    		System.out.println(packageCounter + " / no ACK received for " + seqNo);
 				    	//else

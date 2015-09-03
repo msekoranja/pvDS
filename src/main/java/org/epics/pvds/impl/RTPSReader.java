@@ -31,7 +31,15 @@ public class RTPSReader
     // TODO
     protected final DatagramChannel discoveryUnicastChannel;
 
+    /**
+     * This instance reader ID.
+     */
     private final int readerId;
+
+    /**
+     * Remote (data source) writer ID.
+     */
+    private final int writerId;
 		
 	    // non-synced list of free buffers
 	    private final ArrayDeque<FragmentationBufferEntry> freeFragmentationBuffers;
@@ -51,16 +59,18 @@ public class RTPSReader
 	     * Constructor.
 	     * Total allocated buffer size = messageQueueSize * maxMessageSize;
 	     * @param readerId reader ID.
+	     * @param writerId remote (data source) writer ID.
 	     * @param maxMessageSize maximum message size.
 	     * @param messageQueueSize message queue size (number of slots).
 	     */
 	    public RTPSReader(RTPSParticipant processor,
-	    		int readerId, int maxMessageSize, int messageQueueSize) {
+	    		int readerId, int writerId, int maxMessageSize, int messageQueueSize) {
 			
 	    	this.receiver = processor.getReceiver();
 	    	this.stats = processor.getStatistics();
 	    	this.discoveryUnicastChannel = processor.getDiscoveryUnicastChannel();
 			this.readerId = readerId;
+			this.writerId = writerId;
 			
 			freeFragmentationBuffers = new ArrayDeque<FragmentationBufferEntry>(messageQueueSize);
 		    activeFragmentationBuffers = new TreeMap<Long, FragmentationBufferEntry>();
@@ -106,7 +116,7 @@ public class RTPSReader
 		    // readerId
 		    buffer.putInt(readerId);		
 		    // writerId
-		    buffer.putInt(0);
+		    buffer.putInt(writerId);
 		    
 		    // SequenceNumberSet readerSNState
 		    readerSNState.serialize(buffer);
@@ -330,18 +340,17 @@ public class RTPSReader
 	    
 	    private long lastHeartbeatLastSN = 0;
 	    
-	    private static final int ACKNACK_MISSING_COUNT_THRESHOLD = 64;
+	    //private static final int ACKNACK_MISSING_COUNT_THRESHOLD = 64;
 	    private long lastAckNackTimestamp = Long.MIN_VALUE;
 	    
 	    // TODO initialize (message header only once), TODO calculate max size (72?)
 	    private final ByteBuffer ackNackBuffer = ByteBuffer.allocate(128);
 	    private boolean sendAckNackResponse(long timestamp)
 	    {
-	    	//System.out.println("missing SN count:" + missingSequenceNumbers.size());
 	    	if (missingSequenceNumbers.isEmpty())
 	    	{
-	    		// we ACK all sequence numbers until maxReceivedSequenceNumber
-		    	readerSNState.reset(maxReceivedSequenceNumber + 1);
+	    		// we ACK all sequence numbers until maxReceivedSequenceNumber, or ignoreSequenceNumbersPrior
+		    	readerSNState.reset(Math.max(maxReceivedSequenceNumber + 1, ignoreSequenceNumbersPrior));
 	    	}
 	    	else
 	    	{
@@ -553,6 +562,9 @@ System.out.println("sn (" + sn + ") - first (" + first + ") >= 255 ("+ (sn - fir
 						//System.out.println(firstFragmentSeqNo + " passed");
 						entry.release();
 					}
+					
+					// notify about ignoreSequenceNumbersPrior
+					sendAckNackResponse();
 				}
 				else
 				{
@@ -603,6 +615,8 @@ System.out.println(firstFragmentSeqNo + " put on completedBuffers");
 								
 								ignoreSequenceNumbersPrior = Math.max(ignoreSequenceNumbersPrior, nextExpectedSequenceNumber);
 
+								// TODO ignoreSequenceNumbersPrior update acknack?
+								
 								/** ordered, best-effort
 								lastAcceptedSequenceNumber = Math.max(lastAcceptedSequenceNumber, seqNo);
 								ignoreSequenceNumbersPrior = Math.max(ignoreSequenceNumbersPrior, lastAcceptedSequenceNumber+1);
@@ -655,19 +669,22 @@ System.out.println(firstFragmentSeqNo + " put on completedBuffers");
 				lastHeartbeatCount = count;
 			
 				// TODO remove
-				//System.out.println("HEARTBEAT: " + firstSN + " -> " + lastSN + " | " + count);
+				System.out.println("HEARTBEAT: " + firstSN + " -> " + lastSN + " | " + count);
 				
 				if (lastSN > lastKnownSequenceNumber)
 					lastKnownSequenceNumber = lastSN;
 				
 				long newMissingSN = 0;
 				
-				// TODO report nackAck (for ignoreSequenceNumbersPrior) here... periodically or...!!!
+				boolean sendAckNack = false;
 
 				if (maxReceivedSequenceNumber == 0)
 				{
 					// at start we accept only fresh (seqNo >= lastSN) sequences 
 					ignoreSequenceNumbersPrior = lastSN + 1;
+					
+					// do not send ackNack here, first received non-fragmented message will ACK it,
+					// or ackNack will be sent when ignoreSequenceNumbersPrior will be adjusted for fragmented message
 				}
 				else
 				{
@@ -680,17 +697,22 @@ System.out.println(firstFragmentSeqNo + " put on completedBuffers");
 					// remove obsolete (not available anymore) sequence numbers
 					long minAvailableSN = Math.max(firstSN, ignoreSequenceNumbersPrior);
 					updateMinAvailableSeqNo(minAvailableSN, true);
-					ignoreSequenceNumbersPrior = Math.max(ignoreSequenceNumbersPrior, firstSN);
+					if (firstSN > ignoreSequenceNumbersPrior)
+					{
+						ignoreSequenceNumbersPrior = firstSN;
+						sendAckNack = true;
+					}
 				}
-				
+
 				// FinalFlag flag (require response)
 				boolean flagF = (receiver.submessageFlags & 0x02) == 0x02;
-				if (flagF)
+				if (flagF || sendAckNack)
 					sendAckNackResponse();
 				// first missing seqNo
-				else if (missingSequenceNumbers.size() == newMissingSN)
+				else if (newMissingSN > 0 && missingSequenceNumbers.size() == newMissingSN)
 					sendAckNackResponse();
-				else if (lastHeartbeatLastSN == lastSN)	
+				// repetetive HB (no new data)
+				else if (lastHeartbeatLastSN == lastSN)
 					checkAckNackCondition();
 				else if (newMissingSN > 0)
 					checkAckNackCondition();
@@ -823,18 +845,20 @@ System.out.println("missed some messages, promoting the following unfragmented m
 		
 		
 		
-	    // TODO to be moved out
 	    private void newDataNotify(SharedBuffer buffer)
 	    {
+	    	// TODO do we really need to send after every completed?
+	    	sendAckNackResponse();
+	    	
 	    	if (!newDataQueue.offer(buffer))
 	    	{
+	    		// TODO !!! should not happen
 				buffer.close();
 	    		System.out.println("buffer lost");
 	    		System.err.println("********************************");
 	    	}
 	    }
 	    
-	    // TODO to be moved out
 	    public SharedBuffer waitForNewData(long timeout) throws InterruptedException
 	    {
 	    	return newDataQueue.poll(timeout, TimeUnit.MILLISECONDS);
