@@ -12,6 +12,9 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 import org.epics.pvds.Protocol;
+import org.epics.pvds.Protocol.EntityId;
+import org.epics.pvds.Protocol.GUID;
+import org.epics.pvds.Protocol.GUIDPrefix;
 import org.epics.pvds.Protocol.SequenceNumberSet;
 import org.epics.pvds.Protocol.SubmessageHeader;
 
@@ -842,4 +845,7 @@ System.out.println("missed some messages, promoting the following unfragmented m
 			System.out.println("missedSequencesNotify");
 		}
 
+	    public GUID getGUID() {
+	    	return new GUID(GUIDPrefix.GUIDPREFIX, new EntityId(readerId));
+	    }
 	}

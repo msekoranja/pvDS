@@ -1,5 +1,6 @@
 package org.epics.pvds.impl;
 
+import org.epics.pvds.Protocol.GUID;
 import org.epics.pvds.util.CityHash64;
 
 /**
@@ -18,6 +19,11 @@ class GUIDHolder
 	{
 	}
 	
+	public GUIDHolder(GUID guid)
+	{
+		set(guid.prefix.value, guid.entityId.value);
+	}
+
 	public GUIDHolder(byte[] guidPrefix, int entityId)
 	{
 		set(guidPrefix, entityId);

@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.epics.pvds.Protocol;
+import org.epics.pvds.Protocol.GUID;
 import org.epics.pvds.Protocol.GUIDPrefix;
 import org.epics.pvds.Protocol.ProtocolVersion;
 import org.epics.pvds.Protocol.SubmessageHeader;
@@ -26,24 +27,36 @@ public class RTPSParticipant extends RTPSEndPoint
     protected final MessageReceiverStatistics stats = new MessageReceiverStatistics();
 
     private static final int INITIAL_READER_CAPACITY = 16;
-    protected final Map<GUIDHolder, RTPSReader> readerMap = new HashMap<GUIDHolder, RTPSReader>(INITIAL_READER_CAPACITY);
+    protected final Map<GUIDHolder, RTPSReader> readers = new HashMap<GUIDHolder, RTPSReader>(INITIAL_READER_CAPACITY);
 
     private static final int INITIAL_WRITER_CAPACITY = 16;
-    protected final Map<GUIDHolder, RTPSWriter> writerMap = new HashMap<GUIDHolder, RTPSWriter>(INITIAL_WRITER_CAPACITY);
+    protected final Map<GUIDHolder, RTPSWriter> writers = new HashMap<GUIDHolder, RTPSWriter>(INITIAL_WRITER_CAPACITY);
 
+    
+    private static final int INITIAL_W2R_CAPACITY = 16;
+    protected final Map<GUIDHolder, RTPSReader> writer2readerMapping = new HashMap<GUIDHolder, RTPSReader>(INITIAL_W2R_CAPACITY);
+   
+    private static final int INITIAL_R2W_CAPACITY = 16;
+    protected final Map<GUIDHolder, RTPSWriter> reader2writerMapping = new HashMap<GUIDHolder, RTPSWriter>(INITIAL_R2W_CAPACITY);
+    
     public RTPSParticipant(String multicastNIF, int domainId) throws Throwable {
 		super(multicastNIF, domainId);
 	}
     
-    public RTPSReader createReader(int readerId, int maxMessageSize, int messageQueueSize)
+    public RTPSReader createReader(int readerId, GUID writerGUID, int maxMessageSize, int messageQueueSize)
     {
     	GUIDHolder guid = new GUIDHolder(GUIDPrefix.GUIDPREFIX.value, readerId);
 
-    	if (readerMap.containsKey(guid))
+    	if (readers.containsKey(guid))
     		throw new RuntimeException("Reader with such readerId already exists.");
     		
     	RTPSReader reader = new RTPSReader(this, readerId, maxMessageSize, messageQueueSize);
-    	readerMap.put(guid, reader);
+    	readers.put(guid, reader);
+
+    	// TODO destroy mapping
+    	// mapping
+    	writer2readerMapping.put(new GUIDHolder(writerGUID), reader);
+    	
     	return reader;
     }
 	    
@@ -51,11 +64,11 @@ public class RTPSParticipant extends RTPSEndPoint
     {
     	GUIDHolder guid = new GUIDHolder(GUIDPrefix.GUIDPREFIX.value, writerId);
 
-    	if (writerMap.containsKey(guid))
+    	if (writers.containsKey(guid))
     		throw new RuntimeException("Writer with such writerId already exists.");
     		
     	RTPSWriter writer = new RTPSWriter(this, writerId, maxMessageSize, messageQueueSize);
-    	writerMap.put(guid, writer);
+    	writers.put(guid, writer);
     	return writer;
     }
 
@@ -182,7 +195,7 @@ public class RTPSParticipant extends RTPSEndPoint
 					buffer.order(endianess);
 					
 					receiver.sourceGuidHolder.set(receiver.sourceGuidPrefix, receiver.writerId);
-					RTPSReader reader = readerMap.get(receiver.readerId);
+					RTPSReader reader = writer2readerMapping.get(receiver.readerId);
 					if (reader != null)
 						reader.processDataSubMessage(octetsToInlineQos, buffer);
 						
@@ -198,7 +211,7 @@ public class RTPSParticipant extends RTPSEndPoint
 					buffer.order(endianess);
 
 					receiver.sourceGuidHolder.set(receiver.sourceGuidPrefix, receiver.readerId);
-					RTPSReader reader = readerMap.get(receiver.sourceGuidHolder);
+					RTPSReader reader = writer2readerMapping.get(receiver.sourceGuidHolder);
 					if (reader != null)
 						reader.processHeartbeatSubMessage(buffer);
 					
@@ -214,7 +227,7 @@ public class RTPSParticipant extends RTPSEndPoint
 					buffer.order(endianess);
 
 					receiver.sourceGuidHolder.set(receiver.sourceGuidPrefix, receiver.writerId);
-					RTPSWriter writer = writerMap.get(receiver.sourceGuidHolder);
+					RTPSWriter writer = reader2writerMapping.get(receiver.sourceGuidHolder);
 					if (writer != null)
 						writer.processAckNackSubMessage(buffer);
 					
@@ -248,43 +261,40 @@ public class RTPSParticipant extends RTPSEndPoint
    private final AtomicBoolean started = new AtomicBoolean();
    public final void start()
     {
-	    new Thread(new Runnable() { 
-	    	public void run()
-	    	{
-	    		if (started.getAndSet(true))
-	    			return;
+	    new Thread(() -> {
+    		if (started.getAndSet(true))
+    			return;
+    		
+    		try
+    		{
+    			discoveryMulticastChannel.configureBlocking(false);
+
+	    		Selector selector = Selector.open();
+	    		discoveryMulticastChannel.register(selector, SelectionKey.OP_READ);
 	    		
-	    		try
-	    		{
-	    			discoveryMulticastChannel.configureBlocking(false);
-	
-		    		Selector selector = Selector.open();
-		    		discoveryMulticastChannel.register(selector, SelectionKey.OP_READ);
-		    		
-		    	    ByteBuffer buffer = ByteBuffer.allocate(65536);
-	    			
-		    	    // TODO stop
-	    			while (true)
-	    			{
-	    				// TODO let decide on timeout, e.g. rtpsReceiver.waitTime();
-	    				int keys = selector.select();
-	    				if (keys > 0)
-	    				{
-	    					// ACK all
-	    					selector.selectedKeys().clear();
-	    					
-		    				buffer.clear();
-				    	    SocketAddress receivedFrom = discoveryMulticastChannel.receive(buffer);
-				    	    buffer.flip();
-				    	    processMessage(receivedFrom, buffer);
-	    				}
-	    			}
-	    		}
-	    		catch (Throwable th) 
-	    		{
-	    			th.printStackTrace();
-	    		}
-	    	}
+	    	    ByteBuffer buffer = ByteBuffer.allocate(65536);
+    			
+	    	    // TODO stop
+    			while (true)
+    			{
+    				// TODO let decide on timeout, e.g. rtpsReceiver.waitTime();
+    				int keys = selector.select();
+    				if (keys > 0)
+    				{
+    					// ACK all
+    					selector.selectedKeys().clear();
+    					
+	    				buffer.clear();
+			    	    SocketAddress receivedFrom = discoveryMulticastChannel.receive(buffer);
+			    	    buffer.flip();
+			    	    processMessage(receivedFrom, buffer);
+    				}
+    			}
+    		}
+    		catch (Throwable th) 
+    		{
+    			th.printStackTrace();
+    		}
 	    }, "processor-rx-thread").start();
     	
     }

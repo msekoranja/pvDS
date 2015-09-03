@@ -16,6 +16,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.epics.pvds.Protocol;
+import org.epics.pvds.Protocol.EntityId;
+import org.epics.pvds.Protocol.GUID;
+import org.epics.pvds.Protocol.GUIDPrefix;
 import org.epics.pvds.Protocol.SequenceNumberSet;
 import org.epics.pvds.Protocol.SubmessageHeader;
 import org.epics.pvds.util.BitSet;
@@ -136,6 +139,9 @@ public class RTPSWriter {
 				throw new RuntimeException(th);
 			}
 
+		    // add space for header(s)
+		    maxMessageSize += DATA_HEADER_LEN + DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN;
+		    
 		    int requiredBufferSize = messageQueueSize * maxMessageSize;
 		    int packetSize = Math.min(maxMessageSize, MAX_PACKET_SIZE_BYTES);
 		    
@@ -290,6 +296,7 @@ public class RTPSWriter {
 	    }
 
 	    
+	    private static final int DATA_HEADER_LEN = 20;
 	    private static final int DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN = 24;
 	    
 	    // no fragmentation
@@ -656,7 +663,7 @@ public class RTPSWriter {
 		    
 	    	Protocol.addMessageHeader(serializationBuffer);
 		    
-		    if ((dataSize + DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN) <= MAX_PACKET_SIZE_BYTES)
+		    if ((dataSize + DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN) <= serializationBuffer.remaining())
 		    	addDataSubmessage(serializationBuffer, data, dataSize);
 		    else
 		    {
@@ -748,20 +755,21 @@ public class RTPSWriter {
 	    
 	    private final AtomicBoolean started = new AtomicBoolean();
 	    public void start() {
-		    new Thread(new Runnable() {
-		    	public void run() {
-	    			if (started.getAndSet(true))
-	    				return;
-		    		try
-		    		{
-	    				sendProcess();
-		    		}
-		    		catch (Throwable th) 
-		    		{
-		    			th.printStackTrace();
-		    		}
-		    	}
+		    new Thread(() -> {
+    			if (started.getAndSet(true))
+    				return;
+	    		try
+	    		{
+    				sendProcess();
+	    		}
+	    		catch (Throwable th) 
+	    		{
+	    			th.printStackTrace();
+	    		}
 		    }, "writer-thread").start();
 	    }
-	    
-	}
+
+	    public GUID getGUID() {
+	    	return new GUID(GUIDPrefix.GUIDPREFIX, new EntityId(writerId));
+	    }
+}

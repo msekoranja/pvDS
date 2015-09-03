@@ -2,6 +2,7 @@ package org.epics.pvds.test;
 
 import java.nio.ByteBuffer;
 
+import org.epics.pvds.Protocol.GUID;
 import org.epics.pvds.impl.MessageReceiverStatistics;
 import org.epics.pvds.impl.RTPSParticipant;
 import org.epics.pvds.impl.RTPSReader;
@@ -41,9 +42,43 @@ public class TestPVDS {
 	    
 	    final long TIMEOUT_MS = 3000;
 	    
+	    GUID writerGUID = null;
+	    if (isTx)
+	    {
+		    final RTPSWriter writer = processor.createWriter(0, maxMessageSize, messageQueueSize);
+		    writerGUID = writer.getGUID();
+		    writer.start();
+		    
+		    new Thread(() -> {
+		    	try {
+				    int packageCounter = -1;
+				    while (true)
+				    {
+				    	data.putInt(0, ++packageCounter);
+				    	data.flip();
+				    	
+				    	long seqNo = writer.send(data); 
+						System.out.println(packageCounter + " / sent as " + seqNo);
+				    	if (!writer.waitUntilReceived(seqNo, TIMEOUT_MS))
+				    		System.out.println(packageCounter + " / no ACK received for " + seqNo);
+				    	else
+				    		System.out.println(packageCounter + " / OK for " + seqNo);
+				    }
+		    	} catch (Throwable th) {
+		    		th.printStackTrace();
+		    	}
+		    }, "tx").start();
+		}
+
+	    
 	    if (isRx)
 	    {
-		    final RTPSReader reader = processor.createReader(0, maxMessageSize, messageQueueSize);
+	    	if (writerGUID == null)
+	    	{
+	    		// parse args[2]
+	    		throw new RuntimeException("no writer GUID parsing implemented");
+	    	}
+		    final RTPSReader reader = processor.createReader(0, writerGUID, maxMessageSize, messageQueueSize);
 		    while (true)
 		    {
 	    		long t1 = System.currentTimeMillis();
@@ -68,26 +103,7 @@ public class TestPVDS {
 		    	}
 		    }
 	    }
-	
-	    if (isTx)
-	    {
-		    final RTPSWriter writer = processor.createWriter(0, maxMessageSize, messageQueueSize);
-		    writer.start();
-		  
-		    int packageCounter = -1;
-		    while (true)
-		    {
-		    	data.putInt(0, ++packageCounter);
-		    	data.flip();
-		    	
-		    	long seqNo = writer.send(data); 
-				System.out.println(packageCounter + " / sent as " + seqNo);
-		    	if (!writer.waitUntilReceived(seqNo, TIMEOUT_MS))
-		    		System.out.println(packageCounter + " / no ACK received for " + seqNo);
-		    	else
-		    		System.out.println(packageCounter + " / OK for " + seqNo);
-		    }
-		}
+
 	    
 	}
 }
