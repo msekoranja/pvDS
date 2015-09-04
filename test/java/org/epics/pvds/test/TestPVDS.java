@@ -56,6 +56,8 @@ public class TestPVDS {
 				    int packageCounter = -1;
 				    while (true)
 				    {
+				    	// need to sleep to simulate data generation
+				    	Thread.sleep(10);
 				    	data.putInt(0, ++packageCounter);
 				    	data.flip();
 				    	

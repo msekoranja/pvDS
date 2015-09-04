@@ -331,7 +331,11 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		public boolean waitUntilAcked(long seqNo, long timeout) throws InterruptedException
 	    {
 		    // NOTE: seqNo is really expectedSeqNo + 1
-	    	
+	    
+			// nothing to ack since nothing was sent
+			if (seqNo == 0)
+				return true;
+			
 	    	//TODO if (seqNo <= lastHeartbeatFirstSN)
 	    	// TODO overridenSN?
 	    	
@@ -554,8 +558,15 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    private final boolean sendHeartbeatMessage() throws IOException
 	    {
 	    	// check if the message is valid (e.g. no messages sent or if lastOverridenSeqNo == lastSentSeqNo)
-	    	long firstSN = lastOverridenSeqNo.get() + 1;			// TODO this is wrong, there must always be (except initially) at least queueElements in the buffer... current code: if writer is too fast then there the condition is always met (and heartbeat is not sent)!!!
-	   		if (lastSentSeqNo == 0 || firstSN >= lastSentSeqNo)
+	    	long firstSN = lastOverridenSeqNo.get() + 1;
+	    	
+	    	// !!! TODO alive heart beat... we need them
+	    	if (lastSentSeqNo == 0)
+	    	{
+	    		lastSentSeqNo++;
+	    	}
+	    	
+	   		if (firstSN > lastSentSeqNo)
 	   			return false;
 	   		heartbeatBuffer.clear();
 
@@ -715,6 +726,15 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		// not thread-safe
 	    public long send(ByteBuffer data) throws InterruptedException
 	    {
+	    	// TODO configurable
+	    	// no readers, no sending
+	    	if (readerCount.get() == 0)
+	    	{
+	    		// mark buffer as consumed
+	    		data.position(data.limit());
+	    		return 0;
+	    	}
+	    	
 	    	int dataSize = data.remaining();
 
 	    	takeFreeBuffer();
