@@ -63,12 +63,12 @@ public class RTPSReader
 	     * @param maxMessageSize maximum message size.
 	     * @param messageQueueSize message queue size (number of slots).
 	     */
-	    public RTPSReader(RTPSParticipant processor,
+	    public RTPSReader(RTPSParticipant participant,
 	    		int readerId, int writerId, int maxMessageSize, int messageQueueSize) {
 			
-	    	this.receiver = processor.getReceiver();
-	    	this.stats = processor.getStatistics();
-	    	this.discoveryUnicastChannel = processor.getDiscoveryUnicastChannel();
+	    	this.receiver = participant.getReceiver();
+	    	this.stats = participant.getStatistics();
+	    	this.discoveryUnicastChannel = participant.getDiscoveryUnicastChannel();
 			this.readerId = readerId;
 			this.writerId = writerId;
 			
@@ -194,7 +194,7 @@ public class RTPSReader
 	    public interface SharedBuffer extends NoExceptionCloseable {
 	    	public ByteBuffer getBuffer();
 	    }
-	    
+	    /*
 	    private class SharedByteBuffer implements SharedBuffer
 	    {
 	    	private final ByteBuffer buffer;
@@ -214,7 +214,7 @@ public class RTPSReader
 				// noop
 			}
 	    }
-	    
+	    */
     	static final int calculateFragmentCount(int dataSize, int fragmentSize)
     	{
 	    	return dataSize / fragmentSize + (((dataSize % fragmentSize) != 0) ? 1 : 0);
@@ -331,7 +331,7 @@ public class RTPSReader
 	    private long ignoreSequenceNumbersPrior = 0;
 
 	    // last (maximum) seqNo that was passed to the client
-	    private long lastAcceptedSequenceNumber = 0;
+	    //private long lastAcceptedSequenceNumber = 0;
 	    private long nextExpectedSequenceNumber = 0;
 	    
 	    
@@ -341,7 +341,7 @@ public class RTPSReader
 	    private long lastHeartbeatLastSN = 0;
 	    
 	    //private static final int ACKNACK_MISSING_COUNT_THRESHOLD = 64;
-	    private long lastAckNackTimestamp = Long.MIN_VALUE;
+	    //private long lastAckNackTimestamp = Long.MIN_VALUE;
 	    
 	    // TODO initialize (message header only once), TODO calculate max size (72?)
 	    private final ByteBuffer ackNackBuffer = ByteBuffer.allocate(128);
@@ -387,7 +387,7 @@ public class RTPSReader
 				return false;
 			}
 		    
-	    	lastAckNackTimestamp = timestamp;
+	    	//lastAckNackTimestamp = timestamp;
 	    	
 	    	return true;
 	    }
@@ -404,7 +404,7 @@ public class RTPSReader
 	    }
 	    
 	    
-	    void processDataSubMessage(int octetsToInlineQos, ByteBuffer buffer)
+	    void processDataSubMessage(int submessageDataStartPosition, int octetsToInlineQos, ByteBuffer buffer)
 	    {
 			long seqNo = buffer.getLong();
 
@@ -486,35 +486,17 @@ public class RTPSReader
 					// TODO
 				}
 				
-				// TODO resolve appropriate reader
-				// and decode data there
-				
 				// flagD and flagK are exclusive
 				if (flagD)
 				{
 					// Data
 
-					/*
 					int serializedDataLength = 
 						submessageDataStartPosition + receiver.submessageSize - buffer.position();
-					*/
 					
-					// TODO out-of-order QoS
-					// do not report newData if order QoS is set
-					// wait or throw away older messages
-
-					// TODO same as for fragmented
-					if (true) throw new RuntimeException("not yet implemented");
-					
-					// TODO ok for non-ordered policy
-					lastAcceptedSequenceNumber = Math.max(lastAcceptedSequenceNumber, seqNo);
-					ignoreSequenceNumbersPrior = Math.max(ignoreSequenceNumbersPrior, lastAcceptedSequenceNumber+1);
-					updateMinAvailableSeqNo(ignoreSequenceNumbersPrior, true);
-				
-					// TODO byteBuffer pool
-					ByteBuffer bufferCopy = ByteBuffer.allocate(buffer.capacity());	// not to fragment
-					buffer.put(bufferCopy);
-					newDataNotify(new SharedByteBuffer(bufferCopy));
+					// TODO non-fragment messages could be optimized 
+					processDataBuffer(buffer, seqNo, 1, 
+							1, serializedDataLength, serializedDataLength);						
 				}
 				/*
 				else if (flagK)
@@ -542,114 +524,121 @@ public class RTPSReader
 				// jump to inline InlineQoS (or Data)
 				buffer.position(buffer.position() + octetsToInlineQos - 16);	// 16 = 4+4+8
 
-				// calculate fist fragment seqNo; we might not receive first fragment as first
-				long firstFragmentSeqNo = (seqNo - fragmentStartingNum + 1);
-				
-				if (firstFragmentSeqNo < ignoreSequenceNumbersPrior)
-				{
-					stats.ignoredSN++;
-					
-					// this implies all the fragments can be ignored, raise ignoreSequenceNumbersPrior if needed
-					long lastFragmentSeqNoPlusOne = firstFragmentSeqNo + calculateFragmentCount(dataSize, fragmentSize);
-					ignoreSequenceNumbersPrior = Math.max(ignoreSequenceNumbersPrior, lastFragmentSeqNoPlusOne);
-					
-					// ignore older fragments
-					updateMinAvailableSeqNo(ignoreSequenceNumbersPrior, false);
-					
-					// remove fragmentation buffer, if already allocated
-					FragmentationBufferEntry entry = activeFragmentationBuffers.remove(firstFragmentSeqNo);
-					if (entry != null)
-					{
-						//System.out.println(firstFragmentSeqNo + " passed");
-						entry.release();
-					}
-					
-					// notify about ignoreSequenceNumbersPrior
-					sendAckNackResponse();
-				}
-				else
-				{
-					FragmentationBufferEntry entry = getFragmentationBufferEntry(firstFragmentSeqNo, dataSize, fragmentSize);
-					if (entry != null)
-					{
-						for (int i = 0; i < fragmentsInSubmessage; i++)
-						{
-							if (entry.addFragment(fragmentStartingNum, buffer))
-							{
-								// all fragments received
-
-								// remove from active fragmentation buffers map
-								activeFragmentationBuffers.remove(firstFragmentSeqNo);
-System.out.println(firstFragmentSeqNo + " completed");
-
-								
-								// TODO out-of-order QoS
-								// do not report newData if order QoS is set
-								// wait or throw away older messages
-								
-
-								// first completed fragment case
-								if (nextExpectedSequenceNumber == 0)
-								{
-									// set this as first sequenceNo
-									nextExpectedSequenceNumber = firstFragmentSeqNo;
-									
-									// discard all the previous (older) fragments
-									updateMinAvailableSeqNo(firstFragmentSeqNo, true);
-								}
-
-								// is this next? (completed fragment in order)
-								if (firstFragmentSeqNo == nextExpectedSequenceNumber)
-								{
-									lastAcceptedSequenceNumber = nextExpectedSequenceNumber;
-									nextExpectedSequenceNumber = firstFragmentSeqNo + entry.fragments;
-									newDataNotify(entry);
-
-									processNextExpectedSequenceNumbers(false);
-								}
-								else
-								{
-System.out.println(firstFragmentSeqNo + " put on completedBuffers");
-									// put in completed buffers
-									completedBuffers.put(firstFragmentSeqNo, entry);
-								}
-								
-								ignoreSequenceNumbersPrior = Math.max(ignoreSequenceNumbersPrior, nextExpectedSequenceNumber);
-
-								// TODO ignoreSequenceNumbersPrior update acknack?
-								
-								/** ordered, best-effort
-								lastAcceptedSequenceNumber = Math.max(lastAcceptedSequenceNumber, seqNo);
-								ignoreSequenceNumbersPrior = Math.max(ignoreSequenceNumbersPrior, lastAcceptedSequenceNumber+1);
-								updateMinAvailableSeqNo(ignoreSequenceNumbersPrior, true);
-								*/
-								
-								break;
-							}
-							fragmentStartingNum++;
-						}
-					}
-					else
-					{
-						// no free buffers
-						stats.noBuffers++;
-						
-						// treat seqNo as missed packet
-						
-						if (seqNo == maxReceivedSequenceNumber)
-							maxReceivedSequenceNumber--;
-						
-						missingSequenceNumbers.add(seqNo);
-						// notify about first missing seqNo immediately
-						if (missingSequenceNumbers.size() == 1)
-							sendAckNackResponse();
-						else
-							checkAckNackCondition();
-					}
-				}						
+				processDataBuffer(buffer, seqNo, fragmentStartingNum,
+						fragmentsInSubmessage, fragmentSize, dataSize);						
 			}
 	    	
 	    }
+
+		private void processDataBuffer(ByteBuffer buffer, long seqNo,
+				int fragmentStartingNum, int fragmentsInSubmessage,
+				int fragmentSize, int dataSize) {
+			// calculate fist fragment seqNo; we might not receive first fragment as first
+			long firstFragmentSeqNo = (seqNo - fragmentStartingNum + 1);
+			
+			if (firstFragmentSeqNo < ignoreSequenceNumbersPrior)
+			{
+				stats.ignoredSN++;
+				
+				// this implies all the fragments can be ignored, raise ignoreSequenceNumbersPrior if needed
+				long lastFragmentSeqNoPlusOne = firstFragmentSeqNo + calculateFragmentCount(dataSize, fragmentSize);
+				ignoreSequenceNumbersPrior = Math.max(ignoreSequenceNumbersPrior, lastFragmentSeqNoPlusOne);
+				
+				// ignore older fragments
+				updateMinAvailableSeqNo(ignoreSequenceNumbersPrior, false);
+				
+				// remove fragmentation buffer, if already allocated
+				FragmentationBufferEntry entry = activeFragmentationBuffers.remove(firstFragmentSeqNo);
+				if (entry != null)
+				{
+					//System.out.println(firstFragmentSeqNo + " passed");
+					entry.release();
+				}
+				
+				// notify about ignoreSequenceNumbersPrior
+				sendAckNackResponse();
+			}
+			else
+			{
+				FragmentationBufferEntry entry = getFragmentationBufferEntry(firstFragmentSeqNo, dataSize, fragmentSize);
+				if (entry != null)
+				{
+					for (int i = 0; i < fragmentsInSubmessage; i++)
+					{
+						if (entry.addFragment(fragmentStartingNum, buffer))
+						{
+							// all fragments received
+
+							// remove from active fragmentation buffers map
+							activeFragmentationBuffers.remove(firstFragmentSeqNo);
+System.out.println(firstFragmentSeqNo + " completed");
+
+							
+							// TODO out-of-order QoS
+							// do not report newData if order QoS is set
+							// wait or throw away older messages
+							
+
+							// first completed fragment case
+							if (nextExpectedSequenceNumber == 0)
+							{
+								// set this as first sequenceNo
+								nextExpectedSequenceNumber = firstFragmentSeqNo;
+								
+								// discard all the previous (older) fragments
+								updateMinAvailableSeqNo(firstFragmentSeqNo, true);
+							}
+
+							// is this next? (completed fragment in order)
+							if (firstFragmentSeqNo == nextExpectedSequenceNumber)
+							{
+								//lastAcceptedSequenceNumber = nextExpectedSequenceNumber;
+								nextExpectedSequenceNumber = firstFragmentSeqNo + entry.fragments;
+								newDataNotify(entry);
+
+								processNextExpectedSequenceNumbers(false);
+							}
+							else
+							{
+System.out.println(firstFragmentSeqNo + " put on completedBuffers");
+								// put in completed buffers
+								completedBuffers.put(firstFragmentSeqNo, entry);
+							}
+							
+							ignoreSequenceNumbersPrior = Math.max(ignoreSequenceNumbersPrior, nextExpectedSequenceNumber);
+
+							// TODO ignoreSequenceNumbersPrior update acknack?
+							
+							/** ordered, best-effort
+							lastAcceptedSequenceNumber = Math.max(lastAcceptedSequenceNumber, seqNo);
+							ignoreSequenceNumbersPrior = Math.max(ignoreSequenceNumbersPrior, lastAcceptedSequenceNumber+1);
+							updateMinAvailableSeqNo(ignoreSequenceNumbersPrior, true);
+							*/
+							
+							break;
+						}
+						fragmentStartingNum++;
+					}
+				}
+				else
+				{
+					// no free buffers
+					stats.noBuffers++;
+					
+					// treat seqNo as missed packet
+					
+					if (seqNo == maxReceivedSequenceNumber)
+						maxReceivedSequenceNumber--;
+					
+					missingSequenceNumbers.add(seqNo);
+					// notify about first missing seqNo immediately
+					if (missingSequenceNumbers.size() == 1)
+						sendAckNackResponse();
+					else
+						checkAckNackCondition();
+				}
+			}
+		}
 
 	    void processHeartbeatSubMessage(ByteBuffer buffer)
 	    {
@@ -670,7 +659,7 @@ System.out.println(firstFragmentSeqNo + " put on completedBuffers");
 				lastHeartbeatCount = count;
 			
 				// TODO remove
-				//System.out.println("HEARTBEAT: " + firstSN + " -> " + lastSN + " | " + count);
+				System.out.println("HEARTBEAT: " + firstSN + " -> " + lastSN + " | " + count);
 				
 				if (lastSN > lastKnownSequenceNumber)
 					lastKnownSequenceNumber = lastSN;
@@ -747,7 +736,7 @@ System.out.println(firstFragmentSeqNo + " put on completedBuffers");
 System.out.println("missed some messages, promoting the following fragment: " + fbe.seqNo);						
 						completedBuffers.pollFirstEntry();
 						nextExpectedSequenceNumber = fbe.seqNo + fbe.fragments;
-						lastAcceptedSequenceNumber = fbe.seqNo;
+						//lastAcceptedSequenceNumber = fbe.seqNo;
 						missedSequencesNotify();
 						newDataNotify(sb);
 					}
@@ -765,7 +754,7 @@ System.out.println("missed some messages, promoting the following fragment: " + 
 System.out.println("missed some messages, promoting the following unfragmented message: " + seqNo);						
 						completedBuffers.pollFirstEntry();
 						nextExpectedSequenceNumber = seqNo + 1;
-						lastAcceptedSequenceNumber = seqNo;
+						//lastAcceptedSequenceNumber = seqNo;
 						missedSequencesNotify();
 						newDataNotify(sb);
 					}
@@ -784,7 +773,7 @@ System.out.println("missed some messages, promoting the following unfragmented m
 			while (!completedBuffers.isEmpty() &&
 					completedBuffers.firstKey() == nextExpectedSequenceNumber)
 			{
-				lastAcceptedSequenceNumber = nextExpectedSequenceNumber;
+				//lastAcceptedSequenceNumber = nextExpectedSequenceNumber;
 
 				SharedBuffer sb = completedBuffers.pollFirstEntry().getValue();
 				if (sb instanceof FragmentationBufferEntry)

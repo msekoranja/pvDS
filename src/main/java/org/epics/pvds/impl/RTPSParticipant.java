@@ -8,6 +8,7 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.epics.pvds.Protocol;
@@ -197,7 +198,7 @@ public class RTPSParticipant extends RTPSEndPoint
 					receiver.sourceGuidHolder.set(receiver.sourceGuidPrefix, receiver.writerId);
 					RTPSReader reader = writer2readerMapping.get(receiver.sourceGuidHolder);
 					if (reader != null)
-						reader.processDataSubMessage(octetsToInlineQos, buffer);
+						reader.processDataSubMessage(submessageDataStartPosition, octetsToInlineQos, buffer);
 
 					break;
 				}
@@ -260,9 +261,42 @@ public class RTPSParticipant extends RTPSEndPoint
     {
     	return stats;
     }
+   
     
-   private final AtomicBoolean started = new AtomicBoolean();
-   public final void start()
+    private static final int INITIAL_TIMER_CAPACITY = 16;
+    private final ConcurrentHashMap<Object, PeriodicTimerCallback> periodicTimerSubscribers
+    	= new ConcurrentHashMap<Object, PeriodicTimerCallback>(INITIAL_TIMER_CAPACITY);
+    
+    interface PeriodicTimerCallback {
+    	void onPeriod(long now);
+    }
+    
+    void addPeriodicTimeSubscriber(Object key, PeriodicTimerCallback callback)
+    {
+    	periodicTimerSubscribers.put(key, callback);
+    }
+    
+    void removePeriodicTimeSubscriber(Object key)
+    {
+    	periodicTimerSubscribers.remove(key);
+    }
+
+    public void periodicTimer(long now)
+    {
+    	for (PeriodicTimerCallback cb : periodicTimerSubscribers.values())
+    	{
+    		try {
+    			cb.onPeriod(now);
+    		} catch (Throwable th) {
+    			// TODO
+    			th.printStackTrace();
+    		}
+    	}
+    }
+    
+    public final long PERIODIC_TIMER_MS = 1000;
+    private final AtomicBoolean started = new AtomicBoolean();
+    public final void start()
     {
 	    new Thread(() -> {
     		if (started.getAndSet(true))
@@ -283,11 +317,11 @@ public class RTPSParticipant extends RTPSEndPoint
 	    		
 	    	    ByteBuffer buffer = ByteBuffer.allocate(65536);
     			
+	    	    long lastPeriodicTimer = System.currentTimeMillis();
 	    	    // TODO stop
     			while (true)
     			{
-    				// TODO let decide on timeout, e.g. rtpsReceiver.waitTime();
-    				int keys = selector.select();
+    				int keys = selector.select(PERIODIC_TIMER_MS);
     				if (keys > 0)
     				{
 	    				for (SelectionKey key : selector.selectedKeys())
@@ -302,6 +336,13 @@ public class RTPSParticipant extends RTPSEndPoint
 	    					}
 	    				}
 	    				selector.selectedKeys().clear();
+    				}
+    				
+    				long now = System.currentTimeMillis();
+    				if (now - lastPeriodicTimer >= PERIODIC_TIMER_MS)
+    				{
+    					periodicTimer(now);
+    					lastPeriodicTimer = now;
     				}
     			}
     		}

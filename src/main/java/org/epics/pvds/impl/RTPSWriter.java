@@ -6,6 +6,7 @@ import java.net.StandardSocketOptions;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -21,10 +22,11 @@ import org.epics.pvds.Protocol.GUID;
 import org.epics.pvds.Protocol.GUIDPrefix;
 import org.epics.pvds.Protocol.SequenceNumberSet;
 import org.epics.pvds.Protocol.SubmessageHeader;
+import org.epics.pvds.impl.RTPSParticipant.PeriodicTimerCallback;
 import org.epics.pvds.util.BitSet;
 import org.epics.pvds.util.LongDynaHeap;
 
-public class RTPSWriter {
+public class RTPSWriter implements PeriodicTimerCallback {
 
 		protected final MessageReceiver receiver;
 		protected final MessageReceiverStatistics stats;
@@ -34,8 +36,9 @@ public class RTPSWriter {
 
 	    // this instance (writer) EntityId;
 		private final int writerId;
+		private final GUID writerGUID;
 		
-	    private int lastAckNackCount = -1;
+	    //private int lastAckNackCount = -1;
 	    
 	    private final SequenceNumberSet readerSNState = new SequenceNumberSet();
 	    
@@ -122,19 +125,20 @@ public class RTPSWriter {
 	    final InetSocketAddress multicastAddress;
 
 		final ByteBuffer serializationBuffer;
-
-	    public RTPSWriter(RTPSParticipant processor,
+		
+	    public RTPSWriter(RTPSParticipant participant,
 	    		int writerId, int maxMessageSize, int messageQueueSize) {
-	    	this.receiver = processor.getReceiver();
-	    	this.stats = processor.getStatistics();
-	    	this.discoveryUnicastChannel = processor.getDiscoveryUnicastChannel();
+	    	this.receiver = participant.getReceiver();
+	    	this.stats = participant.getStatistics();
+	    	this.discoveryUnicastChannel = participant.getDiscoveryUnicastChannel();
 			this.writerId = writerId;
+			this.writerGUID = new GUID(GUIDPrefix.GUIDPREFIX, new EntityId(writerId));
 
 		    // sender setup
 		    try {
 				discoveryUnicastChannel.setOption(StandardSocketOptions.IP_MULTICAST_LOOP, true);
-			    discoveryUnicastChannel.setOption(StandardSocketOptions.IP_MULTICAST_IF, processor.getMulticastNIF());
-			    multicastAddress = new InetSocketAddress(processor.getDiscoveryMulticastGroup(), processor.getDiscoveryMulticastPort());
+			    discoveryUnicastChannel.setOption(StandardSocketOptions.IP_MULTICAST_IF, participant.getMulticastNIF());
+			    multicastAddress = new InetSocketAddress(participant.getDiscoveryMulticastGroup(), participant.getDiscoveryMulticastPort());
 			} catch (Throwable th) {
 				throw new RuntimeException(th);
 			}
@@ -171,6 +175,8 @@ public class RTPSWriter {
 		    	freeQueue.add(new BufferEntry(buffer.slice()));
 		    }
 		    
+		    participant.addPeriodicTimeSubscriber(new GUIDHolder(writerGUID), this);
+		    
 		    // TODO use logging
 		    System.out.println("Transmitter: buffer size = " + bufferSlots + " packets of " + packetSize + 
 		    				   " bytes, rate limit: " + udpTxRateGbitPerSec + "Gbit/sec (period: " + delay_ns + " ns)");
@@ -202,7 +208,7 @@ public class RTPSWriter {
 				return;
 			}
 			
-			int count = buffer.getInt();
+			/*int count =*/ buffer.getInt();
 
 			// TODO lastAckNackCount is per reader !!!
 			// NOTE: warp concise comparison
@@ -248,6 +254,7 @@ public class RTPSWriter {
 					// noop
 				}
 		    	readerEntry.ackSeqNoHeapElement = minAckSeqNoHeap.insert(ackSeqNo);
+		    	readerCount.incrementAndGet();
 	    	}
 	    	else
 	    	{
@@ -258,6 +265,11 @@ public class RTPSWriter {
 	    	
 	    	//System.out.println(receiver.sourceGuidHolder.hashCode() + " : " + ackSeqNo);
 	    	
+	    	ackSeqNoNotifyCheck();
+	    }
+	    
+	    private void ackSeqNoNotifyCheck()
+	    {
 	    	long waitedAckSeqNo = waitForAckedSeqNo.get();
 	    	//System.out.println("\twaited:" + waitedAckSeqNo);
 	    	if (waitedAckSeqNo > 0 && minAckSeqNoHeap.size() > 0)
@@ -274,16 +286,59 @@ public class RTPSWriter {
 	    		}
 	    	}
 	    }
+	    
+	    private final long LIVENESS_CHECK_PERIOD_MS = 5*1000;
+	    private final long LIVENESS_TIMEOUT_MS = 10*1000;
+	    
+	    // to be called periodically within the same (as ack()) processing thread 
+	    void livenessCheck() {
+	    	
+	    	if (readerMap.size() == 0)
+	    		return;
+	    	
+	    	boolean updated = false;
+	    	long now = System.currentTimeMillis();
+	    	Iterator<ReaderEntry> iterator = readerMap.values().iterator(); 
+	    	while (iterator.hasNext())
+	    	{
+	    		ReaderEntry entry = iterator.next();
+	    		if (now - entry.lastAliveTime > LIVENESS_TIMEOUT_MS)
+	    		{
+	    			iterator.remove();
+	    			minAckSeqNoHeap.remove(entry.ackSeqNoHeapElement);
+			    	readerCount.decrementAndGet();
+			    	updated = true;
+		    		System.out.println("---------------------------------- dead reader");
+	    		}
+	    	}
+	    	
+	    	if (updated)
+		    	ackSeqNoNotifyCheck();
+	    }
+	    
 
-	    public boolean waitUntilAcked(long seqNo, long timeout) throws InterruptedException
+	    long lastLivenessCheck = 0;
+	    
+	    @Override
+		public void onPeriod(long now) {
+	    	if (now - lastLivenessCheck >= LIVENESS_CHECK_PERIOD_MS)
+	    	{
+	    		livenessCheck();
+	    		lastLivenessCheck = now;
+	    	}
+		}
+
+		public boolean waitUntilAcked(long seqNo, long timeout) throws InterruptedException
 	    {
 		    // NOTE: seqNo is really expectedSeqNo + 1
 	    	
 	    	//TODO if (seqNo <= lastHeartbeatFirstSN)
-
+	    	// TODO overridenSN?
+	    	
 	    	synchronized (ackMonitor) {
 
-	    		if (seqNo <= lastAckedSeqNo)
+	    		if (readerCount.get() == 0 ||
+	    			seqNo <= lastAckedSeqNo)
 	    			return true;
 	    		
 	    		waitForAckedSeqNo.set(seqNo);
@@ -499,7 +554,7 @@ public class RTPSWriter {
 	    private final boolean sendHeartbeatMessage() throws IOException
 	    {
 	    	// check if the message is valid (e.g. no messages sent or if lastOverridenSeqNo == lastSentSeqNo)
-	    	long firstSN = lastOverridenSeqNo.get() + 1;
+	    	long firstSN = lastOverridenSeqNo.get() + 1;			// TODO this is wrong, there must always be (except initially) at least queueElements in the buffer... current code: if writer is too fast then there the condition is always met (and heartbeat is not sent)!!!
 	   		if (lastSentSeqNo == 0 || firstSN >= lastSentSeqNo)
 	   			return false;
 	   		heartbeatBuffer.clear();
@@ -519,8 +574,7 @@ public class RTPSWriter {
 	    private static long HEARTBEAT_PERIOD_MESSAGES = 100;		// send every 100 messages (if not sent otherwise)
 	    
 	    // TODO implement these
-	    private AtomicLong oldestACKedSequenceNumber = new AtomicLong(0);
-	    private AtomicInteger readerCount = new AtomicInteger(1);
+	    private AtomicInteger readerCount = new AtomicInteger(0);
 
 	    // TODO heartbeat, acknack are not excluded (do not sent lastSendTime)
 	    private long lastSendTime = 0;
@@ -547,12 +601,9 @@ public class RTPSWriter {
 			    	be = sendQueue.poll(heartbeatTimeout, TimeUnit.MILLISECONDS);
 			    	if (be == null)
 			    	{
-			    		if (readerCount.get() > 0 &&
-			    			oldestACKedSequenceNumber.get() < lastSentSeqNo)
-			    		{
-			    			if (sendHeartbeatMessage())
-			    				messagesSinceLastHeartbeat = 0;
-			    		}
+		    			if (sendHeartbeatMessage())
+		    				messagesSinceLastHeartbeat = 0;
+		    			
 			    		// TODO consider w/o "<< 1"
 			    		heartbeatTimeout = Math.min(heartbeatTimeout << 1, MAX_HEARTBEAT_TIMEOUT_MS);
 			    		continue;
@@ -789,6 +840,6 @@ public class RTPSWriter {
 	    }
 
 	    public GUID getGUID() {
-	    	return new GUID(GUIDPrefix.GUIDPREFIX, new EntityId(writerId));
+	    	return writerGUID;
 	    }
 }

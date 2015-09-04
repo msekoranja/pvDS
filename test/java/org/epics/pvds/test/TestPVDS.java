@@ -61,7 +61,7 @@ public class TestPVDS {
 				    	
 				    	long seqNo = writer.send(data); 
 						//System.out.println(packageCounter + " / sent as " + seqNo);
-				    	if (!writer.waitUntilAcked(seqNo, Long.MAX_VALUE /*TIMEOUT_MS*/))
+				    	if (!writer.waitUntilAcked(seqNo, TIMEOUT_MS))
 				    		System.out.println(packageCounter + " / no ACK received for " + seqNo);
 				    	//else
 				    		//System.out.println(packageCounter + " / OK for " + seqNo);
@@ -72,7 +72,9 @@ public class TestPVDS {
 		    }, "tx").start();
 		}
 
-	    
+	    // late rx test
+	    Thread.sleep(3000);
+	   
 	    if (isRx)
 	    {
 	    	if (writerGUID == null)
