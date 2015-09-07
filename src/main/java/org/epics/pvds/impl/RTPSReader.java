@@ -571,8 +571,6 @@ public class RTPSReader
 
 							// remove from active fragmentation buffers map
 							activeFragmentationBuffers.remove(firstFragmentSeqNo);
-System.out.println(firstFragmentSeqNo + " completed");
-
 							
 							// TODO out-of-order QoS
 							// do not report newData if order QoS is set
@@ -659,7 +657,7 @@ System.out.println(firstFragmentSeqNo + " put on completedBuffers");
 				lastHeartbeatCount = count;
 			
 				// TODO remove
-				System.out.println("HEARTBEAT: " + firstSN + " -> " + lastSN + " | " + count);
+				//System.out.println("HEARTBEAT: " + firstSN + " -> " + lastSN + " | " + count);
 				
 				if (lastSN > lastKnownSequenceNumber)
 					lastKnownSequenceNumber = lastSN;
@@ -675,6 +673,8 @@ System.out.println(firstFragmentSeqNo + " put on completedBuffers");
 					
 					// do not send ackNack here, first received non-fragmented message will ACK it,
 					// or ackNack will be sent when ignoreSequenceNumbersPrior will be adjusted for fragmented message
+					// unless there is no data (or first message) in remote buffers
+					sendAckNack = (firstSN == lastSN);
 				}
 				else
 				{

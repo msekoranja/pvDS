@@ -177,6 +177,11 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		    
 		    participant.addPeriodicTimeSubscriber(new GUIDHolder(writerGUID), this);
 		    
+		    // add support for noop heartbeats
+		    // used when there is no readers
+		    writerSequenceNumber.incrementAndGet();
+		    lastSentSeqNo = 1;
+		    
 		    // TODO use logging
 		    System.out.println("Transmitter: buffer size = " + bufferSlots + " packets of " + packetSize + 
 		    				   " bytes, rate limit: " + udpTxRateGbitPerSec + "Gbit/sec (period: " + delay_ns + " ns)");
@@ -216,8 +221,9 @@ public class RTPSWriter implements PeriodicTimerCallback {
 			{
 //				lastAckNackCount = count;
 				
-				nack(readerSNState, (InetSocketAddress)receiver.receivedFrom);
 				//System.out.println("ACKNACK: " + readerSNState + " | " + count);
+
+				nack(readerSNState, (InetSocketAddress)receiver.receivedFrom);
 
 				// ack (or receiver does not care anymore) all before readerSNState.bitmapBase
 				ack(readerSNState.bitmapBase);
@@ -560,12 +566,6 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    	// check if the message is valid (e.g. no messages sent or if lastOverridenSeqNo == lastSentSeqNo)
 	    	long firstSN = lastOverridenSeqNo.get() + 1;
 	    	
-	    	// !!! TODO alive heart beat... we need them
-	    	if (lastSentSeqNo == 0)
-	    	{
-	    		lastSentSeqNo++;
-	    	}
-	    	
 	   		if (firstSN > lastSentSeqNo)
 	   			return false;
 	   		heartbeatBuffer.clear();
@@ -581,7 +581,8 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    
 	    // TODO make configurable
 	    private static long MIN_HEARTBEAT_TIMEOUT_MS = 1;
-	    private static long MAX_HEARTBEAT_TIMEOUT_MS = 15*1024;
+	    private static long MAX_HEARTBEAT_TIMEOUT_MS = 5*1024;		// TODO increase this when subscription is implemented, indealy there should be no HEARTBEAT is there is no clients
+	    private static long INITIAL_HEARTBEAT_TIMEOUT_MS = 16;
 	    private static long HEARTBEAT_PERIOD_MESSAGES = 100;		// send every 100 messages (if not sent otherwise)
 	    
 	    // TODO implement these
@@ -593,7 +594,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    public void sendProcess() throws IOException, InterruptedException
 	    {
 	    	int messagesSinceLastHeartbeat = 0;
-	    	long heartbeatTimeout = MAX_HEARTBEAT_TIMEOUT_MS; 
+	    	long heartbeatTimeout = INITIAL_HEARTBEAT_TIMEOUT_MS; 
 	    	
 		    // sender
 		    while (true)

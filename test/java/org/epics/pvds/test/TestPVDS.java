@@ -56,12 +56,19 @@ public class TestPVDS {
 				    int packageCounter = -1;
 				    while (true)
 				    {
-				    	// need to sleep to simulate data generation
-				    	Thread.sleep(10);
 				    	data.putInt(0, ++packageCounter);
 				    	data.flip();
 				    	
 				    	long seqNo = writer.send(data); 
+				    	// packet not sent (no readers)
+				    	if (seqNo == 0) 
+				    	{
+				    		// decrement package counter and sleep for a while
+				    		packageCounter--;
+					    	Thread.sleep(10);
+				    		continue;
+				    	}
+				    	
 						//System.out.println(packageCounter + " / sent as " + seqNo);
 				    	if (!writer.waitUntilAcked(seqNo, TIMEOUT_MS))
 				    		System.out.println(packageCounter + " / no ACK received for " + seqNo);
@@ -75,7 +82,7 @@ public class TestPVDS {
 		}
 
 	    // late rx test
-	    Thread.sleep(3000);
+	    Thread.sleep(1000);
 	   
 	    if (isRx)
 	    {
