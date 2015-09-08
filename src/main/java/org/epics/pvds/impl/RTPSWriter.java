@@ -14,7 +14,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.epics.pvds.Protocol;
 import org.epics.pvds.Protocol.EntityId;
@@ -55,77 +56,97 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    
 	    private final AtomicInteger resendRequestsPending = new AtomicInteger(0);
 	    
-	    class BufferEntry {
+	    final class BufferEntry {
 	    	final ByteBuffer buffer;
 
 	    	long sequenceNo;
 	    	InetSocketAddress sendAddress;
 	    	
 	    	// 0 - none, 1 - unicast, > 1 - multicast
-	    	final AtomicInteger resendRequests = new AtomicInteger(0);
-	    	final AtomicReference<InetSocketAddress> resendUnicastAddress = new AtomicReference<InetSocketAddress>();
+	    	// TODO optimize sync
+	    	volatile int resendRequests;
+	    	InetSocketAddress resendUnicastAddress;
+	    	
+	    	final Lock lock = new ReentrantLock();
 	    	
 	    	public BufferEntry(ByteBuffer buffer) {
 	    		this.buffer = buffer;
 	    	}
 	    	
-	    	// thread-safe, must never lock (no locks)
-	    	public void resendRequest(InetSocketAddress address)
+	    	public void lock()
 	    	{
-	    		int resendRequestsCount = resendRequests.getAndIncrement();
-	    		if (resendRequestsCount == 0)
-	    			resendUnicastAddress.set(address);
-	    		// duplicate call of same reader, this check is here
-	    		// to avoid the same reader increment resendRequests > 1
-	    		// and as consequence resend could not be done as unicast
-// TODO this causes problems !!!!
-//	    		else if (resendUnicastAddress.get() == address)
-//	    			resendRequests.compareAndSet(resendRequestsCount + 1, resendRequestsCount);
-	    		
-	    		// NOTE: sum of all resendRequest might not be same as resendRequestsPending for a moment
-	    		// we do not care for multiple request of the same reader
-	    		resendRequestsPending.incrementAndGet();
+	    		lock.lock();
+	    	}
+	    	
+	    	public void unlock()
+	    	{
+	    		lock.unlock();
+	    	}
+	    	
+	    	public void resendRequest(long expectedSeqNo, InetSocketAddress address)
+	    	{
+	    		lock();
+	    		try 
+	    		{
+		    		if (expectedSeqNo != sequenceNo)
+		    			return;
+		    		
+		    		if (resendRequests == 0)
+		    			resendUnicastAddress = address;
+		    		resendRequests++;
+		    		
+		    		// NOTE: sum of all resendRequest might not be same as resendRequestsPending for a moment
+		    		// we do not care for multiple requests of the same reader
+		    		resendRequestsPending.incrementAndGet();
+	    		}
+	    		finally
+	    		{
+	    			unlock();
+	    		}
 	    	}
 	    	
 	    	// NOTE: no call to resendRequest() must be made after this method is called, until message is actually sent
 	    	public synchronized ByteBuffer prepare(long sequenceId, InetSocketAddress sendAddress)
 	    	{
 	    		// invalidate all resend requests
-	    		resendRequestsPending.addAndGet(-resendRequests.getAndSet(0));
-	    		resendUnicastAddress.set(null);
-
-	    		this.sequenceNo = sequenceId;
-	    		this.sendAddress = sendAddress;
+	    		lock();
+	    		try 
+	    		{
+		    		resendRequestsPending.addAndGet(-resendRequests); resendRequests = 0;
+		    		resendUnicastAddress = null;
+	
+		    		this.sequenceNo = sequenceId;
+		    		this.sendAddress = sendAddress;
+		    		
+		    		buffer.clear();
 	    		
-	    		buffer.clear();
-	    		
-	    		return buffer;
+		    		return buffer;
+	    		}
+	    		finally
+	    		{
+	    			unlock();
+	    		}
+	    	}
+	    	
+	    	// TODO optimize this
+	    	public void setSequenceNo(long seqNo)
+	    	{
+	    		lock();
+	    		sequenceNo = seqNo;
+	    		unlock();
 	    	}
 
-	    	/// ???
-	    	public void beforeSend()
-	    	{
-	    		resendRequestsPending.addAndGet(-resendRequests.getAndSet(0));
-	    	}
-
-	    	/// ???
-	    	public void afterSend()
-	    	{
-	    		resendRequestsPending.addAndGet(-resendRequests.getAndSet(0));
-	    	}
 	    }
 	    
 
 	    final ArrayBlockingQueue<BufferEntry> freeQueue;
 	    final ArrayBlockingQueue<BufferEntry> sendQueue;
 	    
-	    final ConcurrentHashMap<Long, BufferEntry> recoverMap = new ConcurrentHashMap<Long, BufferEntry>();
+	    final ConcurrentHashMap<Long, BufferEntry> recoverMap;
 
 	    // TODO for test
 	    final InetSocketAddress multicastAddress;
 
-		final ByteBuffer serializationBuffer;
-		
 	    public RTPSWriter(RTPSParticipant participant,
 	    		int writerId, int maxMessageSize, int messageQueueSize) {
 	    	this.receiver = participant.getReceiver();
@@ -161,7 +182,6 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		    sendQueue = new ArrayBlockingQueue<BufferEntry>(bufferSlots);
 
 		    ByteBuffer buffer = ByteBuffer.allocate(bufferSlots*packetSize);
-		    serializationBuffer = buffer.duplicate();
 		
 		    //BufferEntry[] bufferPackets = new BufferEntry[bufferPacketsCount];
 		    int pos = 0;
@@ -174,6 +194,8 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		    	//bufferPackets[i] = new BufferEntry(buffer.slice());
 		    	freeQueue.add(new BufferEntry(buffer.slice()));
 		    }
+		    
+		    recoverMap = new ConcurrentHashMap<Long, BufferEntry>(bufferSlots);
 		    
 		    participant.addPeriodicTimeSubscriber(new GUIDHolder(writerGUID), this);
 		    
@@ -489,7 +511,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		    // octetsToNextHeader is left to 0 (until end of the message)
 		    // this means this DataFrag message must be the last message 
 		    
-		    return sn;
+	    	return sn;
 	    }
 
 	    /*
@@ -545,7 +567,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
     	    		BufferEntry be = recoverMap.get(nackedSN);
     	    		if (be != null)
     	    		{
-    	    			be.resendRequest(recoveryAddress);
+    	    			be.resendRequest(nackedSN, recoveryAddress);
     	    		}
     	    		else
     	    		{
@@ -643,21 +665,27 @@ public class RTPSWriter implements PeriodicTimerCallback {
 			    }*/
 				long endTime = lastSendTime + delay_ns;
 				while (endTime - System.nanoTime() > 0);
-				
 				lastSendTime = System.nanoTime();	// TODO adjust nanoTime() overhead?
-
 			    //System.out.println(sleep_ns);
 
-			    if (be.sequenceNo != 0)
-			    {
-			    	recoverMap.put(be.sequenceNo, be);
-			    	lastSentSeqNo = be.sequenceNo;
-			    	
-			    		// TODO remove
-			    	//System.out.println("tx: " + be.sequenceNo);
-			    }
-			    be.buffer.flip();
-			    discoveryUnicastChannel.send(be.buffer, be.sendAddress);
+				be.lock();
+				try
+				{
+				    if (be.sequenceNo != 0)
+				    {
+				    	recoverMap.put(be.sequenceNo, be);
+				    	lastSentSeqNo = be.sequenceNo;
+				    	//System.out.println("tx: " + be.sequenceNo);
+				    }
+				    be.buffer.flip();
+				    // NOTE: yes, send can send 0 or be.buffer.remaining() 
+				    while (be.buffer.remaining() > 0)
+				    	discoveryUnicastChannel.send(be.buffer, be.sendAddress);
+				}
+				finally
+				{
+					be.unlock();
+				}
 			    freeQueue.put(be);
 
 		    	messagesSinceLastHeartbeat++;
@@ -677,21 +705,20 @@ public class RTPSWriter implements PeriodicTimerCallback {
 
 	    	for (BufferEntry be : freeQueue)
 	    	{
-			    int resendRequestCount = be.resendRequests.get();
-			    if (resendRequestCount > 0)
+			    if (be.resendRequests > 0)
 			    {
-				    // TODO we need at least 1us precision?
-			    	// we do not want to sleep while lock is held, do it here
-				    long endTime = lastSendTime + delay_ns;
-					while (endTime - System.nanoTime() > 0);
+			    	be.lock();
+			    	try
+			    	{
+				    	// TODO we need at least 1us precision?
+				    	// we do not want to sleep while lock is held, do it here
+					    long endTime = lastSendTime + delay_ns;
+						while (endTime - System.nanoTime() > 0);
 
-					// guard buffer from being taken by serialization process
-					synchronized (be)
-		    		{
 						// recheck if not taken by prepareBuffer() method
-					    resendRequestCount = be.resendRequests.getAndSet(0);
+					    int resendRequestCount = be.resendRequests; be.resendRequests = 0;
 					    resendRequestsPending.getAndAdd(-resendRequestCount);
-					    if (resendRequestCount > 0)
+					    if (be.sequenceNo != 0 && resendRequestCount > 0)
 					    {
 						    lastSendTime = System.nanoTime();	// TODO adjust nanoTime() overhead?
 
@@ -703,6 +730,10 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		
 						    messagesSinceLastHeartbeat++;
 					    }
+			    	}
+			    	finally
+			    	{
+			    		be.unlock();
 		    		}
 	    		}
 
@@ -721,9 +752,6 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    // do not put multiple Data/DataFrag message into same message (they will report different ids)
 		private final AtomicLong writerSequenceNumber = new AtomicLong(0);
 		
-		BufferEntry activeBufferEntry;
-		ByteBuffer activeBuffer;
-		
 		// not thread-safe
 	    public long send(ByteBuffer data) throws InterruptedException
 	    {
@@ -738,8 +766,9 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    	
 	    	int dataSize = data.remaining();
 
-	    	takeFreeBuffer();
-		    
+	    	BufferEntry be = takeFreeBuffer();
+	    	ByteBuffer serializationBuffer = be.buffer;
+
 	    	Protocol.addMessageHeader(serializationBuffer);
 		    
 		    if ((dataSize + DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN) <= serializationBuffer.remaining())
@@ -766,8 +795,13 @@ public class RTPSWriter implements PeriodicTimerCallback {
 			    		serializationBuffer.put(data);
 			    		data.limit(limit);
 			    		
-		    			sendBuffer();
-		    			takeFreeBuffer();
+			    		//be.setSequenceNo(writerSequenceNumber.get());
+					    // lock is being held
+					    be.sequenceNo = writerSequenceNumber.get();
+		    			sendBuffer(be);
+		    			be = takeFreeBuffer();
+		    	    	serializationBuffer = be.buffer;
+
 		    			Protocol.addMessageHeader(serializationBuffer);
 		    		}
 		    		else
@@ -778,7 +812,10 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		    	}
 		    }
 		    
-		    sendBuffer();
+    		//be.setSequenceNo(writerSequenceNumber.get());
+		    // lock is being held
+		    be.sequenceNo = writerSequenceNumber.get();
+		    sendBuffer(be);
 		    
 		    return writerSequenceNumber.get();
 	    }
@@ -792,56 +829,49 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    private long lastSentSeqNo = 0;
 	    private final AtomicLong lastOverridenSeqNo = new AtomicLong(0);
 	    
-	    private void takeFreeBuffer() throws InterruptedException
+	    // TODO lock is held
+	    private BufferEntry takeFreeBuffer() throws InterruptedException
 	    {
 	    	// TODO close existing one?
 
 	    	// TODO !!!
-		    activeBufferEntry = freeQueue.poll(1, TimeUnit.SECONDS);
+	    	BufferEntry be = freeQueue.poll(1, TimeUnit.SECONDS);
 		    // TODO remove?
-		    if (activeBufferEntry == null)
+		    if (be == null)
 		    	throw new RuntimeException("no free buffer");
 	    	
 		    // TODO option with timeout...
 		    
-		    long seqNo = activeBufferEntry.sequenceNo;
+		    // NOTE lock is left held
+		    be.lock();
+
+		    long seqNo = be.sequenceNo;
 		    if (seqNo != 0)
 		    {
 		    	recoverMap.remove(seqNo);
 		    	lastOverridenSeqNo.set(seqNo);
 		    }
 
-		    // TODO
 		    InetSocketAddress sendAddress = multicastAddress;
-		    
-		    activeBuffer = activeBufferEntry.prepare(0, sendAddress);
-		    
-		    // note: activeBuffer wraps buffer (serializationBuffer)
-		    int offset = activeBuffer.arrayOffset();
-		    serializationBuffer.position(0);
-		    serializationBuffer.limit(offset + activeBuffer.capacity());
-		    serializationBuffer.position(offset);
+		    be.prepare(0, sendAddress);
+
+		    return be;
 	    }
 	    
 	    private final long newWriterSequenceNumber()
 	    {
 	    	long newWriterSN = writerSequenceNumber.incrementAndGet();
 	    	//System.out.println("tx newWriterSN: " + newWriterSN);
-	    	activeBufferEntry.sequenceNo = newWriterSN;
 	    	return newWriterSN;
 	    }
 	    
-	    private void sendBuffer() throws InterruptedException
+	    private void sendBuffer(BufferEntry be) throws InterruptedException
 	    {
-	    	// copy back
-		    int offset = activeBuffer.arrayOffset();
-	    	activeBuffer.position(serializationBuffer.position() - offset);
-	    	activeBuffer.limit(serializationBuffer.limit() - offset);
+	    	// unlocks what takeFreeBuffer locks
+	    	be.unlock();
 	    	
-		    sendQueue.put(activeBufferEntry);
-
-		    activeBufferEntry = null;
-	    	activeBuffer = null;
+	    	// enqueue
+		    sendQueue.put(be);
 	    }
 	    
 	    private final AtomicBoolean started = new AtomicBoolean();
