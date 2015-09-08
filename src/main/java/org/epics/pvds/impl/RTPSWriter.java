@@ -724,9 +724,8 @@ public class RTPSWriter implements PeriodicTimerCallback {
 
 						    be.buffer.flip();
 						    // send on unicast address directly if only one reader is interested in it
-						    // TODO commented out since reader is only listening on multicast port
-						    //discoveryUnicastChannel.send(be.buffer, (resendRequestCount == 1) ? be.resendUnicastAddress.get() : be.sendAddress);
-						    discoveryUnicastChannel.send(be.buffer, be.sendAddress);
+						    while (be.buffer.remaining() > 0)
+						    	discoveryUnicastChannel.send(be.buffer, (resendRequestCount == 1) ? be.resendUnicastAddress : be.sendAddress);
 		
 						    messagesSinceLastHeartbeat++;
 					    }
