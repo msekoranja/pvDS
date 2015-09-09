@@ -155,7 +155,13 @@ public class RTPSWriter implements PeriodicTimerCallback {
 			this.writerId = writerId;
 			this.writerGUID = new GUID(GUIDPrefix.GUIDPREFIX, new EntityId(writerId));
 
-		    // sender setup
+			if (maxMessageSize <= 0)
+				throw new IllegalArgumentException("maxMessageSize <= 0");
+			
+			if (messageQueueSize <= 0)
+				throw new IllegalArgumentException("messageQueueSize <= 0");
+
+			// sender setup
 		    try {
 				discoveryUnicastChannel.setOption(StandardSocketOptions.IP_MULTICAST_LOOP, true);
 			    discoveryUnicastChannel.setOption(StandardSocketOptions.IP_MULTICAST_IF, participant.getMulticastNIF());
@@ -678,6 +684,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 				    	//System.out.println("tx: " + be.sequenceNo);
 				    }
 				    be.buffer.flip();
+				    // TODO use unicast if there is only one reader !!!
 				    // NOTE: yes, send can send 0 or be.buffer.remaining() 
 				    while (be.buffer.remaining() > 0)
 				    	discoveryUnicastChannel.send(be.buffer, be.sendAddress);

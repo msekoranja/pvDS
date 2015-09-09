@@ -55,6 +55,9 @@ public class RTPSReader
 	    // TODO consider disruptor
 	    private final ArrayBlockingQueue<SharedBuffer> newDataQueue;
 
+	    private final int maxMessageSize;
+	    //private final int messageQueueSize;
+
 	    /**
 	     * Constructor.
 	     * Total allocated buffer size = messageQueueSize * maxMessageSize;
@@ -71,6 +74,14 @@ public class RTPSReader
 	    	this.discoveryUnicastChannel = participant.getDiscoveryUnicastChannel();
 			this.readerId = readerId;
 			this.writerId = writerId;
+			
+			if (maxMessageSize <= 0)
+				throw new IllegalArgumentException("maxMessageSize <= 0");
+			this.maxMessageSize = maxMessageSize;
+			
+			if (messageQueueSize <= 0)
+				throw new IllegalArgumentException("messageQueueSize <= 0");
+			//this.messageQueueSize = messageQueueSize;
 			
 			freeFragmentationBuffers = new ArrayDeque<FragmentationBufferEntry>(messageQueueSize);
 		    activeFragmentationBuffers = new TreeMap<Long, FragmentationBufferEntry>();
@@ -137,24 +148,28 @@ public class RTPSReader
 	    	FragmentationBufferEntry entry = activeFragmentationBuffers.get(firstSegmentSeqNo);
 	    	if (entry != null)
 	    		return entry;
-	    	
-		    // out-of-order or duplicate (late) fragments will recreate buffer
-	    	if (completedBuffers.containsKey(firstSegmentSeqNo));
-	    	// TODO !!!
-	    		
+
+	    	// NOTE: it is important to have/save space for nextExpectedSequenceNumber message for QOS_RELIABLE
+
 	    	
 	    	// take next
-	    	// TODO !!! take free first, then oldest non-free and mark message as lost; now we are just cycling
 	    	synchronized (freeFragmentationBuffers) {
-		    	entry = freeFragmentationBuffers.pollLast();
-		    	if (entry != null)
-		    	{
-		    		// sanity check
-		    		if (entry.seqNo != 0)
-			    		throw new AssertionError(entry.seqNo != 0);
-		    		
-		    		entry.reset(firstSegmentSeqNo, dataSize, fragmentSize);
-		    	}
+	    		
+    			// QOS_RELIABLE: save space for nextExpectedSequenceNumber message check (negated)
+	    		if (nextExpectedSequenceNumber == 0 ||
+	    			freeFragmentationBuffers.size() != 1 ||
+	    			activeFragmentationBuffers.containsKey(nextExpectedSequenceNumber))
+	    		{
+			    	entry = freeFragmentationBuffers.pollLast();
+			    	if (entry != null)
+			    	{
+			    		// sanity check
+			    		if (entry.seqNo != 0)
+				    		throw new AssertionError(entry.seqNo != 0);
+			    		
+			    		entry.reset(firstSegmentSeqNo, dataSize, fragmentSize);
+			    	}
+	    		}
 			}
 	    	
 	    	if (entry == null)
@@ -162,6 +177,7 @@ public class RTPSReader
 	    		// if QoS.RELIABLE
 	    		return null;
 	    		// TODO non-RELIABLE !!!
+		    	// TODO drop the oldest strategy?
 	    		// else
 	    		/*
 	    		if (completedBuffers.isEmpty())
@@ -560,6 +576,33 @@ public class RTPSReader
 			}
 			else
 			{
+				
+		    	// too large fragment (does not fit our fragments buffers), ignore it
+		    	if (dataSize > maxMessageSize)
+		    	{
+		    		stats.fragmentTooLarge++;
+		    		return;
+		    	}
+		    	
+			    // out-of-order and/or duplicate (late) fragments can recreate buffer
+		    	if (completedBuffers.containsKey(firstFragmentSeqNo))
+		    		return;
+
+		    	/*
+		    	// possible optimization
+		    	// we make an assumption on this message is similar to all other messages
+		    	if (nextExpectedSequenceNumber != 0)
+		    	{
+		    		// this should be guared by ignoreSequenceNumbersPrior condition
+		    		//if (firstSegmentSeqNo < nextExpectedSequenceNumber);
+		    			;
+		    		
+		    		long messagesAdvance = (firstSegmentSeqNo - nextExpectedSequenceNumber) / fragments;
+		    		if (messagesAdvance > messageQueueSize - (isExpectedFragmentActive ? 0 : 1))
+		    			return null;		// first wait (accept) older messages
+		    	}
+		    	*/
+		    	
 				FragmentationBufferEntry entry = getFragmentationBufferEntry(firstFragmentSeqNo, dataSize, fragmentSize);
 				if (entry != null)
 				{

@@ -25,6 +25,7 @@ public final class MessageReceiverStatistics {
 	public long ignoredSN;
     
 	public long noBuffers;
+	public long fragmentTooLarge;
     
     public void reset()
     {
@@ -50,6 +51,7 @@ public final class MessageReceiverStatistics {
 	    ignoredSN = 0;
 	    
 	    noBuffers = 0;
+	    fragmentTooLarge = 0;
     }
 
 	@Override
@@ -65,7 +67,7 @@ public final class MessageReceiverStatistics {
 				+ lastSeqNo + ", missedSN=" + missedSN + ", receivedSN="
 				+ receivedSN + ", lostSN=" + lostSN + ", recoveredSN="
 				+ recoveredSN + ", ignoredSN=" + ignoredSN + ", noBuffers="
-				+ noBuffers + "]";
+				+ noBuffers + ", fragmentTooLarge=" + fragmentTooLarge + "]";
 	}
     
 }
