@@ -5,6 +5,7 @@ import java.nio.IntBuffer;
 
 import org.epics.pvds.Protocol.GUID;
 import org.epics.pvds.impl.MessageReceiverStatistics;
+import org.epics.pvds.impl.QoS;
 import org.epics.pvds.impl.RTPSParticipant;
 import org.epics.pvds.impl.RTPSReader;
 import org.epics.pvds.impl.RTPSReader.SharedBuffer;
@@ -46,7 +47,8 @@ public class TestPVDS {
 	    GUID writerGUID = null;
 	    if (isTx)
 	    {
-		    final RTPSWriter writer = processor.createWriter(0x12345678, maxMessageSize, messageQueueSize);
+		    final RTPSWriter writer = processor.createWriter(0x12345678, maxMessageSize, messageQueueSize,
+		    		new QoS.WriterQOS[] { new QoS.QOS_LIMIT_RELIABLE_READERS(3) });
 		    writerGUID = writer.getGUID();
 		    System.out.println("Writer GUID: " + writerGUID);
 		    writer.start();
@@ -98,7 +100,8 @@ public class TestPVDS {
 		    System.out.println("Subscribing to writer GUID: " + writerGUID);
 
 	    	int lastReceivedPacketCount = -1; int totalMissed = 0;
-		    final RTPSReader reader = processor.createReader(0, writerGUID, maxMessageSize, messageQueueSize);
+		    final RTPSReader reader = processor.createReader(0, writerGUID, maxMessageSize, messageQueueSize,
+		    		new QoS.ReaderQOS[] { QoS.QOS_RELIABLE });
 		    while (true)
 		    {
 	    		long t1 = System.currentTimeMillis();

@@ -56,6 +56,15 @@ public class RTPSReader
 	    private final int maxMessageSize;
 	    //private final int messageQueueSize;
 
+	    ///
+	    /// QoS
+	    ///
+	    private final static boolean RELIABLE_DEFAULT = false;
+	    private final boolean reliable;
+
+	    private final static boolean ORDERED_DEFAULT = false;
+	    private final boolean ordered;
+	    
 	    /**
 	     * Constructor.
 	     * Total allocated buffer size = messageQueueSize * maxMessageSize;
@@ -65,7 +74,10 @@ public class RTPSReader
 	     * @param messageQueueSize message queue size (number of slots).
 	     */
 	    public RTPSReader(RTPSParticipant participant,
-	    		int readerId, int writerId, int maxMessageSize, int messageQueueSize) {
+	    		int readerId, int writerId,
+	    		int maxMessageSize, int messageQueueSize,
+	    		QoS.ReaderQOS[] qos)
+	    {
 			
 	    	this.receiver = participant.getReceiver();
 	    	this.stats = participant.getStatistics();
@@ -80,6 +92,39 @@ public class RTPSReader
 			if (messageQueueSize <= 0)
 				throw new IllegalArgumentException("messageQueueSize <= 0");
 			//this.messageQueueSize = messageQueueSize;
+			
+			///
+			/// QoS
+			/// 
+			
+		    boolean reliable = RELIABLE_DEFAULT;
+		    boolean ordered = ORDERED_DEFAULT;
+			if (qos != null)
+			{
+				for (QoS.ReaderQOS rq : qos)
+				{
+					if (rq == QoS.QOS_RELIABLE)
+					{
+						reliable = true;
+						ordered = true;
+					}
+					else if (rq == QoS.QOS_ORDERED)
+					{
+						ordered = true;
+					}
+					else 
+					{
+						// TODO log
+						System.out.println("Unsupported reader QoS: " + rq);
+					}
+				}
+			}
+			this.reliable = reliable;
+			this.ordered = ordered;
+			
+			///
+			/// allocate and initialize buffer(s)
+			///
 			
 			freeFragmentationBuffers = new ArrayDeque<FragmentationBufferEntry>(messageQueueSize);
 		    activeFragmentationBuffers = new TreeMap<Long, FragmentationBufferEntry>();

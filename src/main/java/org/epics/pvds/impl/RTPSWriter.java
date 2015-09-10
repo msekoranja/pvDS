@@ -145,8 +145,15 @@ public class RTPSWriter implements PeriodicTimerCallback {
 
 	    final InetSocketAddress multicastAddress;
 
-	    public RTPSWriter(RTPSParticipant participant,
-	    		int writerId, int maxMessageSize, int messageQueueSize) {
+	    ///
+	    /// QoS
+	    ///
+	    private final static int LIMIT_READERS_DEFAULT = Integer.MAX_VALUE;
+	    private final int limitReaders;
+
+	    public RTPSWriter(RTPSParticipant participant, int writerId,
+	    		int maxMessageSize, int messageQueueSize,
+	    		QoS.WriterQOS[] qos) {
 	    	this.receiver = participant.getReceiver();
 	    	this.stats = participant.getStatistics();
 	    	this.unicastChannel = participant.getUnicastChannel();
@@ -159,6 +166,29 @@ public class RTPSWriter implements PeriodicTimerCallback {
 			if (messageQueueSize <= 0)
 				throw new IllegalArgumentException("messageQueueSize <= 0");
 
+			///
+			/// QoS
+			/// 
+			
+		    int limitReaders = LIMIT_READERS_DEFAULT;
+			if (qos != null)
+			{
+				for (QoS.WriterQOS wq: qos)
+				{
+					if (wq instanceof QoS.QOS_LIMIT_RELIABLE_READERS)
+					{
+						limitReaders = ((QoS.QOS_LIMIT_RELIABLE_READERS)wq).limit;
+					}
+					else 
+					{
+						// TODO log
+						System.out.println("Unsupported writer QoS: " + wq);
+					}
+				}
+			}
+			this.limitReaders = limitReaders;
+
+			
 			// sender setup
 		    try {
 				unicastChannel.setOption(StandardSocketOptions.IP_MULTICAST_LOOP, true);
@@ -168,6 +198,10 @@ public class RTPSWriter implements PeriodicTimerCallback {
 				throw new RuntimeException(th);
 			}
 
+		    ///
+		    /// allocate and initialize buffers
+		    ///
+		    
 		    // add space for header(s)
 		    int packetSize = maxMessageSize + DATA_HEADER_LEN + DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN;
 		    int bufferSlots = messageQueueSize;
@@ -201,6 +235,8 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		    
 		    recoverMap = new ConcurrentHashMap<Long, BufferEntry>(bufferSlots);
 		    
+		    
+		    // setup liveliness timer
 		    participant.addPeriodicTimeSubscriber(new GUIDHolder(writerGUID), this);
 		    
 		    // add support for noop heartbeats
@@ -278,6 +314,10 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    	ReaderEntry readerEntry = readerMap.get(receiver.sourceGuidHolder);
 	    	if (readerEntry == null)
 	    	{
+	    		// QOS_LIMIT_READERS check
+	    		if (readerMap.size() >= limitReaders)
+	    			return;
+	    			
 	    		System.out.println("---------------------------------- new reader");
 	    		readerEntry = new ReaderEntry();
 	    		try {
