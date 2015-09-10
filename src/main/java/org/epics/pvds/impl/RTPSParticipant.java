@@ -292,7 +292,7 @@ public class RTPSParticipant extends RTPSEndPoint
     		try {
     			cb.onPeriod(now);
     		} catch (Throwable th) {
-    			// TODO
+    			// TODO log
     			th.printStackTrace();
     		}
     	}
@@ -321,7 +321,7 @@ public class RTPSParticipant extends RTPSEndPoint
 	    	    ByteBuffer buffer = ByteBuffer.allocate(65536);
     			
 	    	    long lastPeriodicTimer = System.currentTimeMillis();
-	    	    // TODO stop
+	    	    // TODO destroy/stop
     			while (true)
     			{
     				int keys = selector.select(PERIODIC_TIMER_MS);

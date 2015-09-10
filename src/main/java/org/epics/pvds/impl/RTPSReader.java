@@ -28,7 +28,6 @@ public class RTPSReader
 	protected final MessageReceiver receiver;
     protected final MessageReceiverStatistics stats;
 
-    // TODO
     protected final DatagramChannel unicastChannel;
 
     /**
@@ -52,7 +51,6 @@ public class RTPSReader
 	    // TODO consider using TreeSet
 	    private final TreeMap<Long, SharedBuffer> completedBuffers;
 	
-	    // TODO consider disruptor
 	    private final ArrayBlockingQueue<SharedBuffer> newDataQueue;
 
 	    private final int maxMessageSize;
@@ -374,9 +372,9 @@ public class RTPSReader
 		    	readerSNState.reset(first);
 		    	for (Long sn : missingSequenceNumbers)
 		    	{
-		    		if (sn - first >= 255)			// TODO constant
+		    		if (sn - first >= SequenceNumberSet.MAX_RANGE)
 		    		{
-		    			// TODO imagine this case 100, 405...500
+		    			// TODO imagine this case 100, 405...500 (range limit)
 		    			// in this case readerSNState can report only 100!!!
 //System.out.println("sn (" + sn + ") - first (" + first + ") >= 255 ("+ (sn - first) + ")");	
 		    			// send NACK only message
@@ -385,7 +383,7 @@ public class RTPSReader
 		    		
 		    		readerSNState.set(sn); 
 		    	}
-		    	// TODO what if we have more !!!
+		    	// TODO optimize: what if we have more !!!
 	    	}
 //System.out.println("sending ACKNACK: " + readerSNState.bitmapBase + ", " + readerSNState.bitmap);
 
@@ -394,11 +392,9 @@ public class RTPSReader
 	    	addAckNackSubmessage(ackNackBuffer, readerSNState);
 	    	ackNackBuffer.flip();
 
-	    	// TODO
 		    try {
 				unicastChannel.send(ackNackBuffer, receiver.receivedFrom);
 			} catch (IOException e) {
-				// TODO Auto-generated catch block
 				e.printStackTrace();
 				return false;
 			}
@@ -499,7 +495,7 @@ public class RTPSReader
 				if (flagQ)
 				{
 					// ParameterList inlineQos
-					// TODO
+					// TODO not supported (not used)
 				}
 				
 				// flagD and flagK are exclusive
@@ -525,7 +521,7 @@ public class RTPSReader
 			else		// DataFrag
 			{
 			    // fragmentStartingNum (unsigned integer, starting from 1)
-				// TODO revise: unsigned overflow !!!
+				// TODO NOTE: this limits us to Integer.MAX_INTEGER (unsigned overflow)
 				int fragmentStartingNum = buffer.getInt();
 
 				// fragmentsInSubmessage (unsigned short)
@@ -699,7 +695,6 @@ System.out.println(firstFragmentSeqNo + " put on completedBuffers");
 			{
 				lastHeartbeatCount = count;
 			
-				// TODO remove
 				//System.out.println("HEARTBEAT: " + firstSN + " -> " + lastSN + " | " + count);
 				
 				if (lastSN > lastKnownSequenceNumber)
@@ -755,7 +750,7 @@ System.out.println(firstFragmentSeqNo + " put on completedBuffers");
 
 				lastHeartbeatLastSN = lastSN;
 
-				// TODO remove
+				// TODO log
 				//System.out.println("\t" + missingSequenceNumbers);
 				//System.out.println("\tmissed   : " + stats.missedSN);
 				//System.out.println("\treceived : " + stats.receivedSN + " (" + (100*stats.receivedSN/(stats.receivedSN+stats.missedSN))+ "%)");
@@ -776,11 +771,11 @@ System.out.println(firstFragmentSeqNo + " put on completedBuffers");
 					FragmentationBufferEntry fbe = ((FragmentationBufferEntry)sb);
 					if (minAvailableSN >= fbe.seqNo)
 					{
-System.out.println("missed some messages, promoting the following fragment: " + fbe.seqNo);						
+//System.out.println("missed some messages, promoting the following fragment: " + fbe.seqNo);						
 						completedBuffers.pollFirstEntry();
 						nextExpectedSequenceNumber = fbe.seqNo + fbe.fragments;
 						//lastAcceptedSequenceNumber = fbe.seqNo;
-						missedSequencesNotify();
+						missedSequencesNotify(fbe.seqNo, minAvailableSN);
 						newDataNotify(sb);
 					}
 					else
@@ -794,11 +789,11 @@ System.out.println("missed some messages, promoting the following fragment: " + 
 					long seqNo = entry.getKey();
 					if (minAvailableSN >= seqNo)
 					{
-System.out.println("missed some messages, promoting the following unfragmented message: " + seqNo);						
+//System.out.println("missed some messages, promoting the following unfragmented message: " + seqNo);						
 						completedBuffers.pollFirstEntry();
 						nextExpectedSequenceNumber = seqNo + 1;
 						//lastAcceptedSequenceNumber = seqNo;
-						missedSequencesNotify();
+						missedSequencesNotify(seqNo, minAvailableSN);
 						newDataNotify(sb);
 					}
 					else
@@ -850,7 +845,7 @@ System.out.println("missed some messages, promoting the following unfragmented m
 					FragmentationBufferEntry fragmentEntry = fragmentIterator.next();
 					if ((fragmentEntry.seqNo + fragmentEntry.fragments) <= minAvailableSN)
 					{
-						missedSequencesNotify();
+						missedSequencesNotify(fragmentEntry.seqNo, minAvailableSN);
 						fragmentEntry.release(fragmentIterator);
 					}
 					else
@@ -885,10 +880,10 @@ System.out.println("missed some messages, promoting the following unfragmented m
 	    	
 	    	if (!newDataQueue.offer(buffer))
 	    	{
-	    		// TODO !!! should not happen
 				buffer.close();
-	    		System.out.println("buffer lost");
-	    		System.err.println("********************************");
+				// this should never happen, 
+				// since number of buffers equals number of newDataQueue size
+				throw new AssertionError("buffer lost");
 	    	}
 	    }
 	    
@@ -897,8 +892,8 @@ System.out.println("missed some messages, promoting the following unfragmented m
 	    	return newDataQueue.poll(timeout, TimeUnit.MILLISECONDS);
 	    }
 	    
-		// TODO
-		private void missedSequencesNotify()
+		// TODO missed callback
+		private void missedSequencesNotify(long start, long end)
 		{
 			System.out.println("missedSequencesNotify");
 		}

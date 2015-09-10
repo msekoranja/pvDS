@@ -18,7 +18,7 @@ public final class MessageReceiver
 	//boolean haveTimestamp;
 	//Time_t timestamp;
 	
-	// TODO EntityId
+	// integer representation of EntityId
 	int readerId;
 	int writerId;
 	

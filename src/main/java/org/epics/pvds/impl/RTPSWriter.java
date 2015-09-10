@@ -32,7 +32,6 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		protected final MessageReceiver receiver;
 		protected final MessageReceiverStatistics stats;
 
-	    // TODO
 	    protected final DatagramChannel unicastChannel;
 
 	    // this instance (writer) EntityId;
@@ -46,7 +45,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    // TODO to be configurable
 
 		// NOTE: Giga means 10^9 (not 1024^3)
-	    private final double udpTxRateGbitPerSec = Double.valueOf(System.getProperty("PVDS_MAX_THROUGHPUT", "0.90")); // TODO !!!
+	    private final double udpTxRateGbitPerSec = Double.valueOf(System.getProperty("PVDS_MAX_THROUGHPUT", "0.90")); // TODO make configurable, figure out better default!!!
 	    private final int MESSAGE_ALIGN = 32;
 	    private final int MAX_PACKET_SIZE_BYTES_CONF = Integer.valueOf(System.getProperty("PVDS_MAX_UDP_PACKET_SIZE", "8000"));
 	    private final int MAX_PACKET_SIZE_BYTES = ((MAX_PACKET_SIZE_BYTES_CONF + MESSAGE_ALIGN - 1) / MESSAGE_ALIGN) * MESSAGE_ALIGN;
@@ -144,7 +143,6 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    
 	    final ConcurrentHashMap<Long, BufferEntry> recoverMap;
 
-	    // TODO for test
 	    final InetSocketAddress multicastAddress;
 
 	    public RTPSWriter(RTPSParticipant participant,
@@ -295,7 +293,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		    	minAckSeqNoHeap.increment(readerEntry.ackSeqNoHeapElement, ackSeqNo);
 	    	}
 
-	    	readerEntry.lastAliveTime = System.currentTimeMillis(); // TODO get from receiverStatistic?
+	    	readerEntry.lastAliveTime = System.currentTimeMillis();
 	    	
 	    	//System.out.println(receiver.sourceGuidHolder.hashCode() + " : " + ackSeqNo);
 	    	
@@ -420,7 +418,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		    long sn = newWriterSequenceNumber();
 		    buffer.putLong(sn);
 		    
-		    // InlineQoS TODO
+		    // InlineQoS TODO InlineQoS not supported (not needed now)
 		    
 		    // Data
 		    // must fit this buffer, this is not DATA_FRAG message
@@ -500,7 +498,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		    // should not change, last actually fragmented data size is < fragmentSize
 		    if (firstFragment)
 		    {
-		    	fragmentSize = buffer.remaining() - 6;	// - fragmentSize - dataSize (TODO - InlineQoS)
+		    	fragmentSize = buffer.remaining() - 6;	// - fragmentSize - dataSize (TODO InlineQoS)
 			    fragmentSize = Math.min(fragmentDataLeft, fragmentSize);
 		    }
 		    buffer.putShort((short)fragmentSize);
@@ -510,7 +508,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		    // sampleSize (unsigned integer)
 		    buffer.putInt(fragmentTotalSize);
 		    
-		    // InlineQoS TODO
+		    // InlineQoS TODO InlineQoS not supported (not needed now)
 
 		    // data payload comes next
 		    
@@ -521,7 +519,6 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    }
 
 	    /*
-	    // TODO tmp
 	    public void addAnnounceSubmessage(ByteBuffer buffer, int changeCount, Locator unicastEndpoint,
 	    		int entitiesCount, BloomFilter<String> filter)
 	    {
@@ -534,7 +531,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		    // change count 
 		    buffer.putInt(changeCount);
 
-		    // service locators // TODO
+		    // service locators
 		    // none for now
 		    buffer.putInt(0);
 		    
@@ -601,7 +598,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	   		Protocol.addMessageHeader(heartbeatBuffer);
     		addHeartbeatSubmessage(heartbeatBuffer, firstSN, lastSentSeqNo);
     		heartbeatBuffer.flip();
-    		// TODO !!!
+ 
     		unicastChannel.send(heartbeatBuffer, multicastAddress);
 
 		    return true;
@@ -644,7 +641,6 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		    			if (sendHeartbeatMessage())
 		    				messagesSinceLastHeartbeat = 0;
 		    			
-			    		// TODO consider w/o "<< 1"
 			    		heartbeatTimeout = Math.min(heartbeatTimeout << 1, MAX_HEARTBEAT_TIMEOUT_MS);
 			    		continue;
 			    	}
@@ -663,9 +659,9 @@ public class RTPSWriter implements PeriodicTimerCallback {
 			    {
 					lastSendTime = System.nanoTime();
 			    	sleep_ns = endTime - lastSendTime;
-			    	if (sleep_ns < 1000)		// TODO
+			    	if (sleep_ns < 1000)
 			    		break;
-			    	else if (sleep_ns > 100000)	// TODO on linux this is ~2000
+			    	else if (sleep_ns > 100000)	// NOE: on linux this is ~2000
 				    	Thread.sleep(0);
 			    	//	Thread.yield();
 			    }*/
@@ -826,7 +822,6 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		    return writerSequenceNumber.get();
 	    }
 	    
-	    // TODO
 	    public void waitUntilSent() {
 	    	while (!sendQueue.isEmpty())
 	    		Thread.yield();
@@ -835,14 +830,13 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    private long lastSentSeqNo = 0;
 	    private final AtomicLong lastOverridenSeqNo = new AtomicLong(0);
 	    
-	    // TODO lock is held
 	    private BufferEntry takeFreeBuffer() throws InterruptedException
 	    {
 	    	// TODO close existing one?
 
-	    	// TODO !!!
+	    	// TODO non blocking !!!
 	    	BufferEntry be = freeQueue.poll(1, TimeUnit.SECONDS);
-		    // TODO remove?
+		    // TODO return null?
 		    if (be == null)
 		    	throw new RuntimeException("no free buffer");
 	    	

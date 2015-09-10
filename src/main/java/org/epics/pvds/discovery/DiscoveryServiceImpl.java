@@ -107,7 +107,7 @@ public class DiscoveryServiceImpl<T> extends TimerTask {
 	// contains all the entities, entities == getEntities(), will reconstruct filter
 	public void refreshEntitiesNotify(Set<T> entities)
 	{
-		// TODO
+		// TODO configurable
 		double p = 0.01;
 		int minFilterSize = 1024;	// defaults to 0
 		int maxFilterSize = 10240;	// defaults to Integer.MAX_VALUE

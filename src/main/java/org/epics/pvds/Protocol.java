@@ -290,7 +290,7 @@ In case the octetsToNextHeader==0 and the kind of Submessage is PAD or INFO_TS, 
 				throw new IllegalArgumentException("unsupported InetAddress type: " + address.getClass());
 			
 			byte[] byteAddress = new byte[LOCATOR_ADDRESS_SIZE];
-			System.arraycopy(IPv6Prefix, 0, byteAddress, 0, IPv6Prefix.length);	// TODO is it OK to add prefix
+			System.arraycopy(IPv6Prefix, 0, byteAddress, 0, IPv6Prefix.length);
 			System.arraycopy(address.getAddress(), 0, byteAddress, LOCATOR_ADDRESS_SIZE - 4, 4);
 			
 			return new Locator(kind, socketAddress.getPort(), byteAddress);
@@ -302,8 +302,8 @@ In case the octetsToNextHeader==0 and the kind of Submessage is PAD or INFO_TS, 
 		public void serialize(ByteBuffer buffer)
 		{
 			buffer.putInt(kind);
-			buffer.putInt(port);	// unsigned, well we do not expect ports above 65535 limit
-			buffer.put(address);	// TODO is this fixed to 16-bytes!!! yet it is
+			buffer.putInt(port);	// unsigned, there is no ports above 65535 limit
+			buffer.put(address);	// fixed to 16-bytes
 		}
 	}
 	
@@ -319,6 +319,8 @@ In case the octetsToNextHeader==0 and the kind of Submessage is PAD or INFO_TS, 
      */
     public static class SequenceNumberSet
     {
+    	public static final long MAX_RANGE = 255;
+    	
     	public long bitmapBase;
     	public final BitSet bitmap = new BitSet(256);
     	
