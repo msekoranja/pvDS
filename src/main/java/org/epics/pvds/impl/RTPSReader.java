@@ -626,7 +626,7 @@ public class RTPSReader
 		    	}
 		    	
 			    // out-of-order and/or duplicate (late) fragments can recreate buffer
-		    	if (completedBuffers.containsKey(firstFragmentSeqNo))
+		    	if (ordered && completedBuffers.containsKey(firstFragmentSeqNo))
 		    		return;
 
 		    	/*
@@ -656,10 +656,15 @@ public class RTPSReader
 							// remove from active fragmentation buffers map
 							activeFragmentationBuffers.remove(firstFragmentSeqNo);
 							
-							// TODO out-of-order QoS
-							// do not report newData if order QoS is set
-							// wait or throw away older messages
+							// !QOS_ORDERED
+							if (!ordered)
+							{
+								newDataNotify(entry);
+								return;
+							}
 							
+							// do not report newData if order QoS is set immediately
+							// check if ordering is OK
 
 							// first completed fragment case
 							if (nextExpectedSequenceNumber == 0)
@@ -682,7 +687,7 @@ public class RTPSReader
 							}
 							else
 							{
-System.out.println(firstFragmentSeqNo + " put on completedBuffers");
+//System.out.println(firstFragmentSeqNo + " put on completedBuffers");
 								// put in completed buffers
 								completedBuffers.put(firstFragmentSeqNo, entry);
 							}
