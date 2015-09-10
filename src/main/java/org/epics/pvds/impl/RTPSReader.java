@@ -29,7 +29,7 @@ public class RTPSReader
     protected final MessageReceiverStatistics stats;
 
     // TODO
-    protected final DatagramChannel discoveryUnicastChannel;
+    protected final DatagramChannel unicastChannel;
 
     /**
      * This instance reader ID.
@@ -71,7 +71,7 @@ public class RTPSReader
 			
 	    	this.receiver = participant.getReceiver();
 	    	this.stats = participant.getStatistics();
-	    	this.discoveryUnicastChannel = participant.getDiscoveryUnicastChannel();
+	    	this.unicastChannel = participant.getUnicastChannel();
 			this.readerId = readerId;
 			this.writerId = writerId;
 			
@@ -396,7 +396,7 @@ public class RTPSReader
 
 	    	// TODO
 		    try {
-				discoveryUnicastChannel.send(ackNackBuffer, receiver.receivedFrom);
+				unicastChannel.send(ackNackBuffer, receiver.receivedFrom);
 			} catch (IOException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();

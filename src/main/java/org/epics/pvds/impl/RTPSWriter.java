@@ -33,7 +33,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		protected final MessageReceiverStatistics stats;
 
 	    // TODO
-	    protected final DatagramChannel discoveryUnicastChannel;
+	    protected final DatagramChannel unicastChannel;
 
 	    // this instance (writer) EntityId;
 		private final int writerId;
@@ -46,9 +46,9 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    // TODO to be configurable
 
 		// NOTE: Giga means 10^9 (not 1024^3)
-	    private final double udpTxRateGbitPerSec = Double.valueOf(System.getProperty("RATE", "0.90")); // TODO !!!
+	    private final double udpTxRateGbitPerSec = Double.valueOf(System.getProperty("PVDS_MAX_THROUGHPUT", "0.90")); // TODO !!!
 	    private final int MESSAGE_ALIGN = 32;
-	    private final int MAX_PACKET_SIZE_BYTES_CONF = Integer.valueOf(System.getProperty("SIZE", "8000"));
+	    private final int MAX_PACKET_SIZE_BYTES_CONF = Integer.valueOf(System.getProperty("PVDS_MAX_UDP_PACKET_SIZE", "8000"));
 	    private final int MAX_PACKET_SIZE_BYTES = ((MAX_PACKET_SIZE_BYTES_CONF + MESSAGE_ALIGN - 1) / MESSAGE_ALIGN) * MESSAGE_ALIGN;
 	    private long delay_ns = (long)(MAX_PACKET_SIZE_BYTES * 8 / udpTxRateGbitPerSec);
 	
@@ -151,7 +151,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    		int writerId, int maxMessageSize, int messageQueueSize) {
 	    	this.receiver = participant.getReceiver();
 	    	this.stats = participant.getStatistics();
-	    	this.discoveryUnicastChannel = participant.getDiscoveryUnicastChannel();
+	    	this.unicastChannel = participant.getUnicastChannel();
 			this.writerId = writerId;
 			this.writerGUID = new GUID(GUIDPrefix.GUIDPREFIX, new EntityId(writerId));
 
@@ -163,9 +163,9 @@ public class RTPSWriter implements PeriodicTimerCallback {
 
 			// sender setup
 		    try {
-				discoveryUnicastChannel.setOption(StandardSocketOptions.IP_MULTICAST_LOOP, true);
-			    discoveryUnicastChannel.setOption(StandardSocketOptions.IP_MULTICAST_IF, participant.getMulticastNIF());
-			    multicastAddress = new InetSocketAddress(participant.getDiscoveryMulticastGroup(), participant.getDiscoveryMulticastPort());
+				unicastChannel.setOption(StandardSocketOptions.IP_MULTICAST_LOOP, true);
+			    unicastChannel.setOption(StandardSocketOptions.IP_MULTICAST_IF, participant.getMulticastNIF());
+			    multicastAddress = new InetSocketAddress(participant.getMulticastGroup(), participant.getMulticastPort());
 			} catch (Throwable th) {
 				throw new RuntimeException(th);
 			}
@@ -602,7 +602,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
     		addHeartbeatSubmessage(heartbeatBuffer, firstSN, lastSentSeqNo);
     		heartbeatBuffer.flip();
     		// TODO !!!
-    		discoveryUnicastChannel.send(heartbeatBuffer, multicastAddress);
+    		unicastChannel.send(heartbeatBuffer, multicastAddress);
 
 		    return true;
 	    }
@@ -687,7 +687,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 				    // TODO use unicast if there is only one reader !!!
 				    // NOTE: yes, send can send 0 or be.buffer.remaining() 
 				    while (be.buffer.remaining() > 0)
-				    	discoveryUnicastChannel.send(be.buffer, be.sendAddress);
+				    	unicastChannel.send(be.buffer, be.sendAddress);
 				}
 				finally
 				{
@@ -732,7 +732,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 						    be.buffer.flip();
 						    // send on unicast address directly if only one reader is interested in it
 						    while (be.buffer.remaining() > 0)
-						    	discoveryUnicastChannel.send(be.buffer, (resendRequestCount == 1) ? be.resendUnicastAddress : be.sendAddress);
+						    	unicastChannel.send(be.buffer, (resendRequestCount == 1) ? be.resendUnicastAddress : be.sendAddress);
 		
 						    messagesSinceLastHeartbeat++;
 					    }

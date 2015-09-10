@@ -38,12 +38,16 @@ public class RTPSParticipant extends RTPSEndPoint
     private static final int INITIAL_W2R_CAPACITY = 16;
     protected final Map<GUIDHolder, RTPSReader> writer2readerMapping = new HashMap<GUIDHolder, RTPSReader>(INITIAL_W2R_CAPACITY);
    
-    public RTPSParticipant(String multicastNIF, int domainId) throws Throwable {
-		super(multicastNIF, domainId);
+    public RTPSParticipant(String multicastNIF, int domainId, boolean writersOnly) throws Throwable {
+		super(multicastNIF, domainId, !writersOnly);
 	}
     
     public RTPSReader createReader(int readerId, GUID writerGUID, int maxMessageSize, int messageQueueSize)
     {
+    	// writersOnly participant
+    	if (multicastChannel == null)
+    		throw new IllegalStateException("cannot create reader on writersOnly participant");
+    		
     	GUIDHolder guid = new GUIDHolder(GUIDPrefix.GUIDPREFIX.value, readerId);
 
     	if (readers.containsKey(guid))
@@ -307,12 +311,11 @@ public class RTPSParticipant extends RTPSEndPoint
 	    		Selector selector = Selector.open();
 
 	    		// readers
-	    		discoveryMulticastChannel.configureBlocking(false);
-	    		discoveryMulticastChannel.register(selector, SelectionKey.OP_READ, discoveryMulticastChannel);
+	    		if (multicastChannel != null)
+	    			multicastChannel.register(selector, SelectionKey.OP_READ, multicastChannel);
 	    		
-	    		// writers (receiving ACKNACK)
-	    		discoveryUnicastChannel.configureBlocking(false);
-	    		discoveryUnicastChannel.register(selector, SelectionKey.OP_READ, discoveryUnicastChannel);
+	    		// readers (user data over unicast) and writers (receiving ACKNACK)
+	    		unicastChannel.register(selector, SelectionKey.OP_READ, unicastChannel);
 	    		
 	    		
 	    	    ByteBuffer buffer = ByteBuffer.allocate(65536);

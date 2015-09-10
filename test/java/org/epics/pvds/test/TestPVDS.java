@@ -38,7 +38,7 @@ public class TestPVDS {
 		final int domainId = 0;
 	    final String multicastNIF = (args.length > 0) ? args[0] : null;
 	    
-	    final RTPSParticipant processor = new RTPSParticipant(multicastNIF, domainId);
+	    final RTPSParticipant processor = new RTPSParticipant(multicastNIF, domainId, !isRx);
 	    processor.start();
 	    
 	    final long TIMEOUT_MS = 3000;
@@ -148,9 +148,4 @@ public class TestPVDS {
 	}
 }
 
-
-
-// TODO recovery resendProcess and thready safety!!!!!
-// TODO send ackNack more often (before)
-
-// TODO periodic send of ackNack (or heartbeat with final)
+// TODO thread safety and send
