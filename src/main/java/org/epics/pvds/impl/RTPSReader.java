@@ -198,8 +198,10 @@ public class RTPSReader
 	    	// take next
 	    	synchronized (freeFragmentationBuffers) {
 	    		
-    			// QOS_RELIABLE: save space for nextExpectedSequenceNumber message check (negated)
-	    		if (nextExpectedSequenceNumber == 0 ||
+    			// QOS_ORDERED + QOS_RELIABLE: save space for nextExpectedSequenceNumber message check (negated)
+	    		// we need QOS_RELIABLE here to avoid getting out of buffers
+	    		if (!reliable || /* !ordered || - nextExpectedSequenceNumber handles this */
+	    			nextExpectedSequenceNumber == 0 ||
 	    			freeFragmentationBuffers.size() != 1 ||
 	    			activeFragmentationBuffers.containsKey(nextExpectedSequenceNumber))
 	    		{
@@ -217,28 +219,50 @@ public class RTPSReader
 	    	
 	    	if (entry == null)
 	    	{
-	    		// if QoS.RELIABLE
-	    		return null;
-	    		// TODO non-RELIABLE !!!
-		    	// TODO drop the oldest strategy?
-	    		// else
-	    		/*
-	    		if (completedBuffers.isEmpty())
+	    		// QOS_RELIABLE
+	    		// do not drop anything, and we have one buffer slot for nextExpectedSequenceNumber reserved
+	    		if (reliable)
 	    			return null;
 	    		
-	    		// ignore missing
-	    		long nextSN = completedBuffers.firstKey();
-	    		stats.ignoredSN += nextSN - nextExpectedSequenceNumber;
-	    		nextExpectedSequenceNumber = nextSN;
-				updateMinAvailableSeqNo(nextExpectedSequenceNumber, true);
+	    		// !QOS_RELIABLE
 
-	    		processNextExpectedSequenceNumbers(true);
+	    		// there is no nextExpectedSequenceNumber reservation here (not reliable)
+	    		
+	    		if (ordered)
+	    		{
+		    		// QOS_ORDERED
 
-	    		synchronized (freeFragmentationBuffers) {
-			    	entry = freeFragmentationBuffers.pollLast();
-	    			entry.reset(firstSegmentSeqNo, dataSize, fragmentSize);
-				}
-				*/
+		    		if (!completedBuffers.isEmpty())
+		    		{
+		    			// promote completed, ignore older 
+			    		long nextSN = completedBuffers.firstKey();
+			    		stats.ignoredSN += nextSN - nextExpectedSequenceNumber;
+			    		nextExpectedSequenceNumber = nextSN;
+						updateMinAvailableSeqNo(nextExpectedSequenceNumber, true);
+
+			    		processNextExpectedSequenceNumbers(true);
+
+			    		synchronized (freeFragmentationBuffers) {
+					    	entry = freeFragmentationBuffers.pollLast();
+				    		// sanity check
+				    		if (entry.seqNo != 0)
+					    		throw new AssertionError(entry.seqNo != 0);
+			    			entry.reset(firstSegmentSeqNo, dataSize, fragmentSize);
+						}
+		    		}
+		    		else
+		    		{
+		    			// TODO drop the oldest
+		    			
+		    		}
+	    		}
+	    		else
+	    		{
+	    			// !QOS_ORDERED
+	    			
+	    			// TODO drop the oldest
+	    			
+	    		}
 	    	}
 	    	
 	    	activeFragmentationBuffers.put(firstSegmentSeqNo, entry);
@@ -491,20 +515,23 @@ public class RTPSReader
 
 			if (seqNo > maxReceivedSequenceNumber)
 			{
-				// mark [max(ignoreSequenceNumbersPrior, maxReceivedSequenceNumber + 1), seqNo - 1] as missing
-				long newMissingSN = 0;
-				for (long sn = Math.max(ignoreSequenceNumbersPrior, maxReceivedSequenceNumber + 1); sn < seqNo; sn++)
-					if (missingSequenceNumbers.add(sn))
-						newMissingSN++;
-				
-				if (newMissingSN > 0)
+				if (reliable)
 				{
-					stats.missedSN += newMissingSN;
-					// notify about first missing seqNo immediately
-					if (missingSequenceNumbers.size() == newMissingSN)
-						sendAckNackResponse();
-					else
-						checkAckNackCondition();
+					// mark [max(ignoreSequenceNumbersPrior, maxReceivedSequenceNumber + 1), seqNo - 1] as missing
+					long newMissingSN = 0;
+					for (long sn = Math.max(ignoreSequenceNumbersPrior, maxReceivedSequenceNumber + 1); sn < seqNo; sn++)
+						if (missingSequenceNumbers.add(sn))
+							newMissingSN++;
+					
+					if (newMissingSN > 0)
+					{
+						stats.missedSN += newMissingSN;
+						// notify about first missing seqNo immediately
+						if (missingSequenceNumbers.size() == newMissingSN)
+							sendAckNackResponse();
+						else
+							checkAckNackCondition();
+					}
 				}
 				
 				maxReceivedSequenceNumber = seqNo;
@@ -514,11 +541,14 @@ public class RTPSReader
 				lastKnownSequenceNumber = seqNo;
 			else
 			{
-				// missingSequenceNumbers can only contains SN <= lastKnownSequenceNumber
-				// might be a missing SN, remove received seqNo
-				boolean missed = missingSequenceNumbers.remove(seqNo);
-				if (missed)
-					stats.recoveredSN++;
+				if (reliable)
+				{
+					// missingSequenceNumbers can only contains SN <= lastKnownSequenceNumber
+					// might be a missing SN, remove received seqNo
+					boolean missed = missingSequenceNumbers.remove(seqNo);
+					if (missed)
+						stats.recoveredSN++;
+				}
 			}
 			
 			boolean isData = (receiver.submessageId == SubmessageHeader.RTPS_DATA);
@@ -626,6 +656,7 @@ public class RTPSReader
 		    	}
 		    	
 			    // out-of-order and/or duplicate (late) fragments can recreate buffer
+		    	// QOS_ORDERED
 		    	if (ordered && completedBuffers.containsKey(firstFragmentSeqNo))
 		    		return;
 
