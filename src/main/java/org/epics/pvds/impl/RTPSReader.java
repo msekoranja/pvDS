@@ -47,14 +47,18 @@ public class RTPSReader
 	    // TODO consider using "xyz<long, FragmenatinBufferEntry>" alternative, with preallocated size
 	    private final TreeMap<Long, FragmentationBufferEntry> activeFragmentationBuffers;
 
+	    // map of completed buffers held to preserve order, yet to be given to the client
 	    // TODO consider using "xyz<long, SharedBuffer>" alternative, with preallocated size
 	    // TODO consider using TreeSet
 	    private final TreeMap<Long, SharedBuffer> completedBuffers;
 	
+	    // TODO consider using "xyz<long>" alternative, with preallocated size
+	    private final TreeSet<Long> completedSeqNo;
+
 	    private final ArrayBlockingQueue<SharedBuffer> newDataQueue;
 
 	    private final int maxMessageSize;
-	    //private final int messageQueueSize;
+	    private final int messageQueueSize;
 
 	    ///
 	    /// QoS
@@ -91,7 +95,7 @@ public class RTPSReader
 			
 			if (messageQueueSize <= 0)
 				throw new IllegalArgumentException("messageQueueSize <= 0");
-			//this.messageQueueSize = messageQueueSize;
+			this.messageQueueSize = messageQueueSize;
 			
 			///
 			/// QoS
@@ -124,10 +128,11 @@ public class RTPSReader
 			///
 			/// allocate and initialize buffer(s)
 			///
-			
+			// TODO opt: prellocated ADTs, do not allocate if not used (depends on QOS)
 			freeFragmentationBuffers = new ArrayDeque<FragmentationBufferEntry>(messageQueueSize);
-		    activeFragmentationBuffers = new TreeMap<Long, FragmentationBufferEntry>();
-		    completedBuffers = new TreeMap<Long, SharedBuffer>(); 
+		    activeFragmentationBuffers = new TreeMap<Long, FragmentationBufferEntry>(); // messageQueueSize
+		    completedBuffers = new TreeMap<Long, SharedBuffer>(); // messageQueueSize
+		    completedSeqNo = new TreeSet<Long>(); // messageQueueSize + 1
 		    
 		    newDataQueue = new ArrayBlockingQueue<SharedBuffer>(messageQueueSize);
 			
@@ -218,8 +223,6 @@ public class RTPSReader
 	    	
 	    	if (entry == null)
 	    	{
-// TODO bug: QOS_RELIABLE && !QOS_ORDERED - possible duplicates !!!
-
 	    		// QOS_RELIABLE
 	    		// do not drop anything, and we have one buffer slot for nextExpectedSequenceNumber reserved
 	    		if (reliable)
@@ -722,6 +725,20 @@ public class RTPSReader
 							// !QOS_ORDERED
 							if (!ordered)
 							{
+								if (reliable)
+								{
+									// remove duplicates
+									if (!completedSeqNo.add(firstFragmentSeqNo))
+									{
+										entry.release();
+										return;
+									}
+									
+									// remove too old
+									if (completedSeqNo.size() > messageQueueSize)
+										completedSeqNo.remove(completedSeqNo.first());
+								}
+								
 								newDataNotify(entry);
 								return;
 							}

@@ -18,7 +18,7 @@ public class TestPVDS {
 	 */
 	public static void main(String[] args) throws Throwable {
 		
-		final int INT_COUNT = 2048*1024;
+		final int INT_COUNT = /*2048*/1024;
 		ByteBuffer data = ByteBuffer.allocate(INT_COUNT*Integer.BYTES);
 		for (int i = 0; i < INT_COUNT; i++)
 			data.putInt(i);
@@ -27,7 +27,7 @@ public class TestPVDS {
 		final int messageQueueSize = 3;
 		
 		final boolean reliable = true;
-		final boolean ordered = true;
+		final boolean ordered = false;
 		
 	    boolean isRx = false, isTx = false;
 	    if (args.length < 2)
@@ -110,7 +110,7 @@ public class TestPVDS {
 	    	
 		    System.out.println("Subscribing to writer GUID: " + writerGUID);
 
-	    	int lastReceivedPacketCount = -1; int totalMissed = 0;
+	    	int lastReceivedPacketCount = -1; int totalMissed = 0; int totalReceived = 0;
 		    final RTPSReader reader = processor.createReader(0, writerGUID, maxMessageSize, messageQueueSize,
 		    		new QoS.ReaderQOS[] { ordered ? QoS.QOS_ORDERED : null, reliable ? QoS.QOS_RELIABLE : null });
 		    while (true)
@@ -148,7 +148,9 @@ public class TestPVDS {
 			    			lastReceivedPacketCount = packetCount;
 		    			}
 		    			
-		    			System.out.printf("packet %d data received: bw = %.3f Gbit/s, valid data: %b / 'totalMissed': %d\n", packetCount, bw, valid, totalMissed);
+		    			totalReceived++;
+		    			
+		    			System.out.printf("packet %d data received: bw = %.3f Gbit/s, valid data: %b / 'totalMissed': %d, totalReceived: %d\n", packetCount, bw, valid, totalMissed, totalReceived);
 
 		    			if (!valid)
 		    				System.exit(1);
