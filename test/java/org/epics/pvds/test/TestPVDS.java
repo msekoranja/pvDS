@@ -26,6 +26,9 @@ public class TestPVDS {
 		final int maxMessageSize = data.position();
 		final int messageQueueSize = 3;
 		
+		final boolean reliable = true;
+		final boolean ordered = true;
+		
 	    boolean isRx = false, isTx = false;
 	    if (args.length < 2)
 	    	isRx = isTx = true;
@@ -48,7 +51,7 @@ public class TestPVDS {
 	    if (isTx)
 	    {
 		    final RTPSWriter writer = processor.createWriter(0x12345678, maxMessageSize, messageQueueSize,
-		    		new QoS.WriterQOS[] { new QoS.QOS_LIMIT_RELIABLE_READERS(3) });
+		    		new QoS.WriterQOS[] { new QoS.QOS_LIMIT_READERS(3) });
 		    writerGUID = writer.getGUID();
 		    System.out.println("Writer GUID: " + writerGUID);
 		    writer.start();
@@ -71,11 +74,19 @@ public class TestPVDS {
 				    		continue;
 				    	}
 				    	
-						//System.out.println(packageCounter + " / sent as " + seqNo);
-				    	if (!writer.waitUntilAcked(seqNo, TIMEOUT_MS))
-				    		System.out.println(packageCounter + " / no ACK received for " + seqNo);
-				    	//else
-				    		//System.out.println(packageCounter + " / OK for " + seqNo);
+				    	if (reliable)
+				    	{
+							//System.out.println(packageCounter + " / sent as " + seqNo);
+					    	if (!writer.waitUntilAcked(seqNo, TIMEOUT_MS))
+					    		System.out.println(packageCounter + " / no ACK received for " + seqNo);
+					    	//else
+					    		//System.out.println(packageCounter + " / OK for " + seqNo);
+				    	}
+				    	else
+				    	{
+				    		writer.waitUntilSent();
+				    		//Thread.sleep(100);
+				    	}
 				    }
 		    	} catch (Throwable th) {
 		    		th.printStackTrace();
@@ -101,7 +112,7 @@ public class TestPVDS {
 
 	    	int lastReceivedPacketCount = -1; int totalMissed = 0;
 		    final RTPSReader reader = processor.createReader(0, writerGUID, maxMessageSize, messageQueueSize,
-		    		new QoS.ReaderQOS[] { QoS.QOS_RELIABLE });
+		    		new QoS.ReaderQOS[] { ordered ? QoS.QOS_ORDERED : null, reliable ? QoS.QOS_RELIABLE : null });
 		    while (true)
 		    {
 	    		long t1 = System.currentTimeMillis();
@@ -123,15 +134,21 @@ public class TestPVDS {
 		    			while (valid && intBuffer.hasRemaining())
 		    				valid = (intBuffer.get() == expectedValue++);
 						
-		    			if (lastReceivedPacketCount != -1 && (packetCount - lastReceivedPacketCount) > 1)
+		    			if (ordered || reliable)
 		    			{
-		    				int missed = packetCount - lastReceivedPacketCount;
-		    				totalMissed += missed;
-		    				System.err.println("missed:" + missed);
+			    			if (lastReceivedPacketCount != -1 && (packetCount - lastReceivedPacketCount) > 1)
+			    			{
+			    				int missed = packetCount - lastReceivedPacketCount - 1;
+			    				totalMissed += missed;
+			    				if (ordered)
+			    					System.err.println("missed:" + missed);
+			    				else
+			    					System.err.println("diff:" + missed);
+			    			}
+			    			lastReceivedPacketCount = packetCount;
 		    			}
-		    			lastReceivedPacketCount = packetCount;
-		    				
-		    			System.out.printf("packet %d data received: bw = %.3f Gbit/s, valid data: %b / totalMissed: %d\n", packetCount, bw, valid, totalMissed);
+		    			
+		    			System.out.printf("packet %d data received: bw = %.3f Gbit/s, valid data: %b / 'totalMissed': %d\n", packetCount, bw, valid, totalMissed);
 
 		    			if (!valid)
 		    				System.exit(1);

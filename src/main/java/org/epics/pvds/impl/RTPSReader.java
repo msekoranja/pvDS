@@ -106,7 +106,6 @@ public class RTPSReader
 					if (rq == QoS.QOS_RELIABLE)
 					{
 						reliable = true;
-						ordered = true;
 					}
 					else if (rq == QoS.QOS_ORDERED)
 					{
@@ -219,6 +218,8 @@ public class RTPSReader
 	    	
 	    	if (entry == null)
 	    	{
+// TODO bug: QOS_RELIABLE && !QOS_ORDERED - possible duplicates !!!
+
 	    		// QOS_RELIABLE
 	    		// do not drop anything, and we have one buffer slot for nextExpectedSequenceNumber reserved
 	    		if (reliable)
@@ -234,41 +235,66 @@ public class RTPSReader
 
 		    		if (!completedBuffers.isEmpty())
 		    		{
-		    			// promote completed, ignore older 
+		    			// promote completed, ignore (drop) older 
 			    		long nextSN = completedBuffers.firstKey();
 			    		stats.ignoredSN += nextSN - nextExpectedSequenceNumber;
 			    		nextExpectedSequenceNumber = nextSN;
 						updateMinAvailableSeqNo(nextExpectedSequenceNumber, true);
 
 			    		processNextExpectedSequenceNumbers(true);
-
-			    		synchronized (freeFragmentationBuffers) {
-					    	entry = freeFragmentationBuffers.pollLast();
-				    		// sanity check
-				    		if (entry.seqNo != 0)
-					    		throw new AssertionError(entry.seqNo != 0);
-			    			entry.reset(firstSegmentSeqNo, dataSize, fragmentSize);
-						}
+			    		entry = pollFreeFragmenrationBuffer(firstSegmentSeqNo, dataSize, fragmentSize);
 		    		}
 		    		else
 		    		{
-		    			// TODO drop the oldest
+		    			// note: completedBuffer is empty
+
+		    			// no buffer free, drop packet
+		    			if (activeFragmentationBuffers.size() == 0)
+		    				return null;
 		    			
+		    			nextExpectedSequenceNumber = dropOldestFragment();
+						ignoreSequenceNumbersPrior = Math.max(ignoreSequenceNumbersPrior, nextExpectedSequenceNumber);
+
+						entry = pollFreeFragmenrationBuffer(firstSegmentSeqNo, dataSize, fragmentSize);
 		    		}
 	    		}
 	    		else
 	    		{
 	    			// !QOS_ORDERED
 	    			
-	    			// TODO drop the oldest
+	    			// no buffer free, drop packet
+	    			if (activeFragmentationBuffers.size() == 0)
+	    				return null;
 	    			
+	    			dropOldestFragment();
+		    		entry = pollFreeFragmenrationBuffer(firstSegmentSeqNo, dataSize, fragmentSize);
 	    		}
 	    	}
 	    	
-	    	activeFragmentationBuffers.put(firstSegmentSeqNo, entry);
+	    	if (entry != null)
+	    		activeFragmentationBuffers.put(firstSegmentSeqNo, entry);
 	    	
 	    	return entry;
 	    }
+
+		private FragmentationBufferEntry pollFreeFragmenrationBuffer(
+				long firstSegmentSeqNo, int dataSize, int fragmentSize)
+				throws AssertionError {
+			FragmentationBufferEntry entry;
+			synchronized (freeFragmentationBuffers) {
+				entry = freeFragmentationBuffers.pollLast();
+
+				// can be null in case of no free buffers (e.g. !QOS_RELIABLE && QOS_ORDERED)
+				if (entry == null)
+					return null;
+				// sanity check
+				else if (entry.seqNo != 0)
+					throw new AssertionError(entry.seqNo != 0);
+
+				entry.reset(firstSegmentSeqNo, dataSize, fragmentSize);
+			}
+			return entry;
+		}
 
 	    public interface NoExceptionCloseable extends AutoCloseable {
 	    	void close();
@@ -430,7 +456,13 @@ public class RTPSReader
 	    private final ByteBuffer ackNackBuffer = ByteBuffer.allocate(128);
 	    private boolean sendAckNackResponse(long timestamp)
 	    {
-	    	if (missingSequenceNumbers.isEmpty())
+	    	if (!reliable)
+	    	{
+	    		// ack all seqNo
+	    		// TODO possible opt (set this only once)
+		    	readerSNState.reset(Long.MAX_VALUE);
+	    	}
+	    	else if (missingSequenceNumbers.isEmpty())
 	    	{
 	    		// we ACK all sequence numbers until maxReceivedSequenceNumber, or ignoreSequenceNumbersPrior
 		    	readerSNState.reset(Math.max(maxReceivedSequenceNumber + 1, ignoreSequenceNumbersPrior));
@@ -748,12 +780,15 @@ public class RTPSReader
 					if (seqNo == maxReceivedSequenceNumber)
 						maxReceivedSequenceNumber--;
 					
-					missingSequenceNumbers.add(seqNo);
-					// notify about first missing seqNo immediately
-					if (missingSequenceNumbers.size() == 1)
-						sendAckNackResponse();
-					else
-						checkAckNackCondition();
+					if (reliable)
+					{
+						missingSequenceNumbers.add(seqNo);
+						// notify about first missing seqNo immediately
+						if (missingSequenceNumbers.size() == 1)
+							sendAckNackResponse();
+						else
+							checkAckNackCondition();
+					}
 				}
 			}
 		}
@@ -797,12 +832,15 @@ public class RTPSReader
 				}
 				else
 				{
-					// add new available (from firstSN on) missed sequence numbers
-					for (long sn = Math.max(ignoreSequenceNumbersPrior, Math.max(maxReceivedSequenceNumber + 1, firstSN)); sn <= lastSN; sn++)
-						if (missingSequenceNumbers.add(sn))
-							newMissingSN++;
-					stats.missedSN += newMissingSN;
-
+					if (reliable)
+					{
+						// add new available (from firstSN on) missed sequence numbers
+						for (long sn = Math.max(ignoreSequenceNumbersPrior, Math.max(maxReceivedSequenceNumber + 1, firstSN)); sn <= lastSN; sn++)
+							if (missingSequenceNumbers.add(sn))
+								newMissingSN++;
+						stats.missedSN += newMissingSN;
+					}
+					
 					// remove obsolete (not available anymore) sequence numbers
 					long minAvailableSN = Math.max(firstSN, ignoreSequenceNumbersPrior);
 					updateMinAvailableSeqNo(minAvailableSN, true);
@@ -856,7 +894,7 @@ public class RTPSReader
 						completedBuffers.pollFirstEntry();
 						nextExpectedSequenceNumber = fbe.seqNo + fbe.fragments;
 						//lastAcceptedSequenceNumber = fbe.seqNo;
-						missedSequencesNotify(fbe.seqNo, minAvailableSN);
+						missedSequencesNotify(fbe.seqNo, nextExpectedSequenceNumber - 1);
 						newDataNotify(sb);
 					}
 					else
@@ -874,7 +912,7 @@ public class RTPSReader
 						completedBuffers.pollFirstEntry();
 						nextExpectedSequenceNumber = seqNo + 1;
 						//lastAcceptedSequenceNumber = seqNo;
-						missedSequencesNotify(seqNo, minAvailableSN);
+						missedSequencesNotify(seqNo, seqNo);
 						newDataNotify(sb);
 					}
 					else
@@ -913,6 +951,15 @@ public class RTPSReader
 			}	
 		}
 
+		// NOTE: pre-condition: activeFragmentationBuffers.size() > 0
+		private long dropOldestFragment() {
+			FragmentationBufferEntry fragmentEntry = activeFragmentationBuffers.remove(activeFragmentationBuffers.firstKey());
+			long nextSeq = fragmentEntry.seqNo + fragmentEntry.fragments;
+			missedSequencesNotify(fragmentEntry.seqNo, nextSeq - 1);
+			fragmentEntry.release();
+			return nextSeq;
+		}
+		
 		private long updateMinAvailableSeqNo(long minAvailableSN, boolean checkObsoleteFragments) {
 			
 			if (checkObsoleteFragments)
@@ -924,9 +971,10 @@ public class RTPSReader
 				while (fragmentIterator.hasNext())
 				{
 					FragmentationBufferEntry fragmentEntry = fragmentIterator.next();
-					if ((fragmentEntry.seqNo + fragmentEntry.fragments) <= minAvailableSN)
+					long nextSeqNo = fragmentEntry.seqNo + fragmentEntry.fragments; 
+					if (nextSeqNo <= minAvailableSN)
 					{
-						missedSequencesNotify(fragmentEntry.seqNo, minAvailableSN);
+						missedSequencesNotify(fragmentEntry.seqNo, nextSeqNo - 1);
 						fragmentEntry.release(fragmentIterator);
 					}
 					else
@@ -976,7 +1024,7 @@ public class RTPSReader
 		// TODO missed callback
 		private void missedSequencesNotify(long start, long end)
 		{
-			System.out.println("missedSequencesNotify");
+			System.out.println("missedSequencesNotify: " + start + " -> " + end);
 		}
 
 	    public GUID getGUID() {

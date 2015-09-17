@@ -11,9 +11,9 @@ public final class QoS {
 
 	public static ReaderQOS QOS_ORDERED = new ReaderQOS() {};
 
-	public static class QOS_LIMIT_RELIABLE_READERS implements WriterQOS {
+	public static class QOS_LIMIT_READERS implements WriterQOS {
 		public int limit;
-		public QOS_LIMIT_RELIABLE_READERS(int limit)
+		public QOS_LIMIT_READERS(int limit)
 		{
 			if (limit <= 0)
 				throw new IllegalArgumentException("limit <= 0");

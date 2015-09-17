@@ -175,9 +175,9 @@ public class RTPSWriter implements PeriodicTimerCallback {
 			{
 				for (QoS.WriterQOS wq: qos)
 				{
-					if (wq instanceof QoS.QOS_LIMIT_RELIABLE_READERS)
+					if (wq instanceof QoS.QOS_LIMIT_READERS)
 					{
-						limitReaders = ((QoS.QOS_LIMIT_RELIABLE_READERS)wq).limit;
+						limitReaders = ((QoS.QOS_LIMIT_READERS)wq).limit;
 					}
 					else 
 					{
