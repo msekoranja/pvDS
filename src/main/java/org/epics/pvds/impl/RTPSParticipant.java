@@ -44,7 +44,7 @@ public class RTPSParticipant extends RTPSEndPoint
     
     public RTPSReader createReader(int readerId, GUID writerGUID,
     		int maxMessageSize, int messageQueueSize,
-    		QoS.ReaderQOS[] qos)
+    		QoS.ReaderQOS[] qos, RTPSReaderListener listener)
     {
     	// writersOnly participant
     	if (multicastChannel == null)
@@ -55,7 +55,8 @@ public class RTPSParticipant extends RTPSEndPoint
     	if (readers.containsKey(guid))
     		throw new RuntimeException("Reader with such readerId already exists.");
     		
-    	RTPSReader reader = new RTPSReader(this, readerId, writerGUID.entityId.value, maxMessageSize, messageQueueSize, qos);
+    	RTPSReader reader = new RTPSReader(this, readerId, writerGUID.entityId.value,
+    			maxMessageSize, messageQueueSize, qos, listener);
     	readers.put(guid, reader);
 
     	// TODO destroy mapping
@@ -67,14 +68,14 @@ public class RTPSParticipant extends RTPSEndPoint
 	    
     public RTPSWriter createWriter(int writerId,
     		int maxMessageSize, int messageQueueSize,
-    		QoS.WriterQOS[] qos)
+    		QoS.WriterQOS[] qos, RTPSWriterListener listener)
     {
     	GUIDHolder guid = new GUIDHolder(GUIDPrefix.GUIDPREFIX.value, writerId);
 
     	if (writers.containsKey(guid))
     		throw new RuntimeException("Writer with such writerId already exists.");
     		
-    	RTPSWriter writer = new RTPSWriter(this, writerId, maxMessageSize, messageQueueSize, qos);
+    	RTPSWriter writer = new RTPSWriter(this, writerId, maxMessageSize, messageQueueSize, qos, listener);
     	writers.put(guid, writer);
     	return writer;
     }

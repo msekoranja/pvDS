@@ -151,6 +151,10 @@ public final class Protocol {
 			StringBuffer b = new StringBuffer(32);
 			for (byte v : prefix.value)
 				b.append(HexDump.toHex(v));
+			/*
+			for (int i = 11; i >= 0; i--)
+				b.append(HexDump.toHex(prefix.value[i]));
+			 */
 			int entityValue = entityId.value;
 			byte b1 = (byte)(entityValue & 0xFF); entityValue >>>= 8;
 			byte b2 = (byte)(entityValue & 0xFF); entityValue >>>= 8;
@@ -171,6 +175,7 @@ public final class Protocol {
 			byte[] prefix = new byte[12];
 			for (int i = 0; i < 12; i++)
 				prefix[i] = (byte)Integer.parseInt(str.substring(i*2,i*2+2), 16);
+			//	prefix[11 - i] = (byte)Integer.parseInt(str.substring(i*2,i*2+2), 16);
 			
 			byte b1 = (byte)Integer.parseInt(str.substring(24, 26), 16);
 			byte b2 = (byte)Integer.parseInt(str.substring(26, 28), 16);

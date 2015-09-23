@@ -8,7 +8,7 @@ import org.epics.pvds.util.CityHash64;
  * fast hash lookups and comparisons.
  * @author msekoranja
  */
-class GUIDHolder
+public class GUIDHolder
 {
 	
 	// optimized GUID (16-byte byte[] converted to 2 longs)
@@ -31,9 +31,10 @@ class GUIDHolder
 
 	public void set(byte[] guidPrefix, int entityId)
 	{
+		// gets p1 and p2 as little endian
 		p1 = CityHash64.getLong(guidPrefix, 0);
 		int ip2 = CityHash64.getInt(guidPrefix, 8);
-		p2 = (ip2 << 32) | entityId;
+		p2 = ((long)ip2 << 32) | entityId;
 	}
 
 	@Override
@@ -60,6 +61,19 @@ class GUIDHolder
 		o.p1 = p1;
 		o.p2 = p2;
 		return o;
+	}
+
+	@Override
+	public String toString() {
+		// make print compatible with GUID.toString()
+
+		long rp1 = Long.reverseBytes(p1);
+		long rp2 = Long.reverseBytes(p2);
+		
+		long gp1 = rp1; 
+		long gp2 = rp2 << 32 | p2 & 0xFFFFFFFF;
+		
+		return String.format("%016X", gp1) + String.format("%016X", gp2);
 	}
 	
 }

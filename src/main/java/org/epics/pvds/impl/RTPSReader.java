@@ -69,6 +69,8 @@ public class RTPSReader
 	    private final static boolean ORDERED_DEFAULT = false;
 	    private final boolean ordered;
 	    
+	    private final RTPSReaderListener listener;
+	    
 	    /**
 	     * Constructor.
 	     * Total allocated buffer size = messageQueueSize * maxMessageSize;
@@ -76,11 +78,14 @@ public class RTPSReader
 	     * @param writerId remote (data source) writer ID.
 	     * @param maxMessageSize maximum message size.
 	     * @param messageQueueSize message queue size (number of slots).
+	     * @param qos QoS array list, can be <code>null</code>.
+	     * @param listener this instance listener, can be <code>null</code>.
 	     */
 	    public RTPSReader(RTPSParticipant participant,
 	    		int readerId, int writerId,
 	    		int maxMessageSize, int messageQueueSize,
-	    		QoS.ReaderQOS[] qos)
+	    		QoS.ReaderQOS[] qos,
+	    		RTPSReaderListener listener)
 	    {
 			
 	    	this.receiver = participant.getReceiver();
@@ -88,6 +93,7 @@ public class RTPSReader
 	    	this.unicastChannel = participant.getUnicastChannel();
 			this.readerId = readerId;
 			this.writerId = writerId;
+			this.listener = listener;
 			
 			if (maxMessageSize <= 0)
 				throw new IllegalArgumentException("maxMessageSize <= 0");
@@ -1038,10 +1044,17 @@ public class RTPSReader
 	    	return newDataQueue.poll(timeout, TimeUnit.MILLISECONDS);
 	    }
 	    
-		// TODO missed callback
-		private void missedSequencesNotify(long start, long end)
+	    private void missedSequencesNotify(long start, long end)
 		{
-			System.out.println("missedSequencesNotify: " + start + " -> " + end);
+			if (listener != null)
+			{
+	    		try {
+					missedSequencesNotify(start, end);
+	    		} catch (Throwable th) {
+	    			// TODO log
+	    			th.printStackTrace();
+	    		}
+			}
 		}
 
 	    public GUID getGUID() {

@@ -1,24 +1,53 @@
 package org.epics.pvds.test;
 
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 
 import org.epics.pvds.Protocol.GUID;
+import org.epics.pvds.impl.GUIDHolder;
 import org.epics.pvds.impl.MessageReceiverStatistics;
 import org.epics.pvds.impl.QoS;
 import org.epics.pvds.impl.RTPSParticipant;
 import org.epics.pvds.impl.RTPSReader;
 import org.epics.pvds.impl.RTPSReader.SharedBuffer;
+import org.epics.pvds.impl.RTPSReaderListener;
 import org.epics.pvds.impl.RTPSWriter;
+import org.epics.pvds.impl.RTPSWriter.ReaderEntry;
+import org.epics.pvds.impl.RTPSWriterListener;
 
 public class TestPVDS {
+
+	static class RTPSReaderListenerImpl implements RTPSReaderListener {
+
+		@Override
+		public void missedSequencesNotify(long start, long end) {
+			System.out.println("missedSequencesNotify: " + start + " -> " + end);						
+		}
+		
+	}
+	
+	static class RTPSWriterListenerImpl implements RTPSWriterListener {
+
+		@Override
+		public void readerAdded(GUIDHolder readerId, SocketAddress address,
+				ReaderEntry readerEntry) {
+			System.out.println("readerAdded: id = " + readerId + ", address = " + address + ", reliable: " + (readerEntry.lastAckedSeqNo() != Long.MAX_VALUE));						
+		}
+
+		@Override
+		public void readerRemoved(GUIDHolder readerId) {
+			System.out.println("readerRemoved: id = " + readerId);						
+		}
+
+	}
 
 	/**
 	 * @param args
 	 */
 	public static void main(String[] args) throws Throwable {
 		
-		final int INT_COUNT = /*2048*/1024;
+		final int INT_COUNT = 2048*1024;
 		ByteBuffer data = ByteBuffer.allocate(INT_COUNT*Integer.BYTES);
 		for (int i = 0; i < INT_COUNT; i++)
 			data.putInt(i);
@@ -26,8 +55,8 @@ public class TestPVDS {
 		final int maxMessageSize = data.position();
 		final int messageQueueSize = 3;
 		
-		final boolean reliable = true;
-		final boolean ordered = false;
+		boolean reliable = true;
+		boolean ordered = true;
 		
 	    boolean isRx = false, isTx = false;
 	    if (args.length < 2)
@@ -51,7 +80,7 @@ public class TestPVDS {
 	    if (isTx)
 	    {
 		    final RTPSWriter writer = processor.createWriter(0x12345678, maxMessageSize, messageQueueSize,
-		    		new QoS.WriterQOS[] { new QoS.QOS_LIMIT_READERS(3) });
+		    		new QoS.WriterQOS[] { new QoS.QOS_LIMIT_READERS(3) }, new RTPSWriterListenerImpl());
 		    writerGUID = writer.getGUID();
 		    System.out.println("Writer GUID: " + writerGUID);
 		    writer.start();
@@ -112,7 +141,8 @@ public class TestPVDS {
 
 	    	int lastReceivedPacketCount = -1; int totalMissed = 0; int totalReceived = 0;
 		    final RTPSReader reader = processor.createReader(0, writerGUID, maxMessageSize, messageQueueSize,
-		    		new QoS.ReaderQOS[] { ordered ? QoS.QOS_ORDERED : null, reliable ? QoS.QOS_RELIABLE : null });
+		    		new QoS.ReaderQOS[] { ordered ? QoS.QOS_ORDERED : null, reliable ? QoS.QOS_RELIABLE : null },
+		    		new RTPSReaderListenerImpl());
 		    while (true)
 		    {
 	    		long t1 = System.currentTimeMillis();

@@ -55,6 +55,8 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    
 	    private final AtomicInteger resendRequestsPending = new AtomicInteger(0);
 	    
+	    private final RTPSWriterListener listener;
+	    
 	    final class BufferEntry {
 	    	final ByteBuffer buffer;
 
@@ -151,15 +153,25 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    private final static int LIMIT_READERS_DEFAULT = Integer.MAX_VALUE;
 	    private final int limitReaders;
 
+	    /**
+	     * Constructor.
+	     * @param writerId writer ID.
+	     * @param maxMessageSize maximum message size.
+	     * @param messageQueueSize message queue size (number of slots).
+	     * @param qos QoS array list, can be <code>null</code>.
+	     * @param listener this instance listener, can be <code>null</code>.
+	     */
 	    public RTPSWriter(RTPSParticipant participant, int writerId,
 	    		int maxMessageSize, int messageQueueSize,
-	    		QoS.WriterQOS[] qos) {
+	    		QoS.WriterQOS[] qos,
+	    		RTPSWriterListener listnener) {
 	    	this.receiver = participant.getReceiver();
 	    	this.stats = participant.getStatistics();
 	    	this.unicastChannel = participant.getUnicastChannel();
 			this.writerId = writerId;
 			this.writerGUID = new GUID(GUIDPrefix.GUIDPREFIX, new EntityId(writerId));
-
+			this.listener = listnener;
+			
 			if (maxMessageSize <= 0)
 				throw new IllegalArgumentException("maxMessageSize <= 0");
 			
@@ -295,6 +307,14 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    public class ReaderEntry {
 	    	long lastAliveTime = 0;
 	    	LongDynaHeap.HeapMapElement ackSeqNoHeapElement;
+	    	
+	    	public long lastAliveTime() {
+	    		return lastAliveTime;
+	    	}
+	    	
+	    	public long lastAckedSeqNo() {
+	    		return ackSeqNoHeapElement.getValue();
+	    	}
 	    }
 	    
 	    
@@ -317,8 +337,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    		// QOS_LIMIT_READERS check
 	    		if (readerMap.size() >= limitReaders)
 	    			return;
-	    			
-	    		System.out.println("---------------------------------- new reader");
+	    		
 	    		readerEntry = new ReaderEntry();
 	    		try {
 					readerMap.put((GUIDHolder)receiver.sourceGuidHolder.clone(), readerEntry);
@@ -327,6 +346,16 @@ public class RTPSWriter implements PeriodicTimerCallback {
 				}
 		    	readerEntry.ackSeqNoHeapElement = minAckSeqNoHeap.insert(ackSeqNo);
 		    	readerCount.incrementAndGet();
+
+		    	if (listener != null)
+		    	{
+		    		try {
+		    			listener.readerAdded(receiver.sourceGuidHolder, receiver.receivedFrom, readerEntry);
+		    		} catch (Throwable th) {
+		    			// TODO log
+		    			th.printStackTrace();
+		    		}
+		    	}
 	    	}
 	    	else
 	    	{
@@ -370,17 +399,27 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    	
 	    	boolean updated = false;
 	    	long now = System.currentTimeMillis();
-	    	Iterator<ReaderEntry> iterator = readerMap.values().iterator(); 
+	    	Iterator<Map.Entry<GUIDHolder, ReaderEntry>> iterator = readerMap.entrySet().iterator(); 
 	    	while (iterator.hasNext())
 	    	{
-	    		ReaderEntry entry = iterator.next();
+	    		Map.Entry<GUIDHolder, ReaderEntry> mapEntry = iterator.next();;
+	    		ReaderEntry entry = mapEntry.getValue();
 	    		if (now - entry.lastAliveTime > LIVENESS_TIMEOUT_MS)
 	    		{
 	    			iterator.remove();
 	    			minAckSeqNoHeap.remove(entry.ackSeqNoHeapElement);
 			    	readerCount.decrementAndGet();
 			    	updated = true;
-		    		System.out.println("---------------------------------- dead reader");
+			    	
+			    	if (listener != null)
+			    	{
+			    		try {
+			    			listener.readerRemoved(mapEntry.getKey());
+			    		} catch (Throwable th) {
+			    			// TODO log
+			    			th.printStackTrace();
+			    		}
+			    	}
 	    		}
 	    	}
 	    	
