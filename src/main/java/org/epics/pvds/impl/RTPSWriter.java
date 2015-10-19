@@ -14,6 +14,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -307,6 +308,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    public class ReaderEntry {
 	    	long lastAliveTime = 0;
 	    	LongDynaHeap.HeapMapElement ackSeqNoHeapElement;
+	    	InetSocketAddress socketAddress;
 	    	
 	    	public long lastAliveTime() {
 	    		return lastAliveTime;
@@ -314,6 +316,10 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    	
 	    	public long lastAckedSeqNo() {
 	    		return ackSeqNoHeapElement.getValue();
+	    	}
+	    	
+	    	public InetSocketAddress socketAddress() {
+	    		return socketAddress;
 	    	}
 	    }
 	    
@@ -339,14 +345,20 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    			return;
 	    		
 	    		readerEntry = new ReaderEntry();
+		    	readerEntry.ackSeqNoHeapElement = minAckSeqNoHeap.insert(ackSeqNo);
+		    	readerEntry.socketAddress = (InetSocketAddress)receiver.receivedFrom;
+
 	    		try {
 					readerMap.put((GUIDHolder)receiver.sourceGuidHolder.clone(), readerEntry);
 				} catch (CloneNotSupportedException e) {
 					// noop
 				}
-		    	readerEntry.ackSeqNoHeapElement = minAckSeqNoHeap.insert(ackSeqNo);
-		    	readerCount.incrementAndGet();
 
+	    		if (readerCount.incrementAndGet() == 1)
+		    		singleReaderSocketAddress.set(readerEntry.socketAddress);
+		    	else
+		    		singleReaderSocketAddress.set(null);
+		    	
 		    	if (listener != null)
 		    	{
 		    		try {
@@ -402,14 +414,21 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    	Iterator<Map.Entry<GUIDHolder, ReaderEntry>> iterator = readerMap.entrySet().iterator(); 
 	    	while (iterator.hasNext())
 	    	{
-	    		Map.Entry<GUIDHolder, ReaderEntry> mapEntry = iterator.next();;
+	    		Map.Entry<GUIDHolder, ReaderEntry> mapEntry = iterator.next();
 	    		ReaderEntry entry = mapEntry.getValue();
 	    		if (now - entry.lastAliveTime > LIVENESS_TIMEOUT_MS)
 	    		{
 	    			iterator.remove();
 	    			minAckSeqNoHeap.remove(entry.ackSeqNoHeapElement);
-			    	readerCount.decrementAndGet();
-			    	updated = true;
+			    	
+	    			if (readerCount.decrementAndGet() == 1)
+	    			{
+    		    		singleReaderSocketAddress.set(readerMap.entrySet().iterator().next().getValue().socketAddress);
+	    			}
+    		    	else
+    		    		singleReaderSocketAddress.set(null);
+	    				
+	    			updated = true;
 			    	
 			    	if (listener != null)
 			    	{
@@ -665,6 +684,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    
 	    // TODO preinitialize, can be fixed
 	    final static ByteBuffer heartbeatBuffer = ByteBuffer.allocate(64);
+	    private long lastMulticastHeartbeatTime;
 	    private final boolean sendHeartbeatMessage() throws IOException
 	    {
 	    	// check if the message is valid (e.g. no messages sent or if lastOverridenSeqNo == lastSentSeqNo)
@@ -678,19 +698,32 @@ public class RTPSWriter implements PeriodicTimerCallback {
     		addHeartbeatSubmessage(heartbeatBuffer, firstSN, lastSentSeqNo);
     		heartbeatBuffer.flip();
  
-    		unicastChannel.send(heartbeatBuffer, multicastAddress);
+		    // unicast vs multicast
+    		// multicasting heartbeat is important as they act as announce messages
+		    InetSocketAddress sendAddress = singleReaderSocketAddress.get();
+		    long now = System.currentTimeMillis();
+		    if (sendAddress == null || (now - lastMulticastHeartbeatTime) > MAX_HEARTBEAT_TIMEOUT_MS)
+		    {
+		    	sendAddress = multicastAddress;
+		    	lastMulticastHeartbeatTime = now;
+		    }
+    		
+		    while (heartbeatBuffer.remaining() > 0)
+		    	unicastChannel.send(heartbeatBuffer, sendAddress);
 
 		    return true;
 	    }
 	    
 	    // TODO make configurable
 	    private static long MIN_HEARTBEAT_TIMEOUT_MS = 1;
-	    private static long MAX_HEARTBEAT_TIMEOUT_MS = 5*1024;		// TODO increase this when subscription is implemented, indealy there should be no HEARTBEAT is there is no clients
+	    private static long MAX_HEARTBEAT_TIMEOUT_MS = 5*1024;		// TODO increase this when subscription is implemented, ideally there should be no HEARTBEAT is there is no clients
 	    private static long INITIAL_HEARTBEAT_TIMEOUT_MS = 16;
 	    private static long HEARTBEAT_PERIOD_MESSAGES = 100;		// send every 100 messages (if not sent otherwise)
 	    
 	    // TODO implement these
 	    private AtomicInteger readerCount = new AtomicInteger(0);
+	    private AtomicReference<InetSocketAddress> singleReaderSocketAddress =
+	    		new AtomicReference<InetSocketAddress>();
 
 	    // TODO heartbeat, acknack are not excluded (do not sent lastSendTime)
 	    private long lastSendTime = 0;
@@ -847,7 +880,12 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    	
 	    	int dataSize = data.remaining();
 
-	    	BufferEntry be = takeFreeBuffer();
+		    // unicast vs multicast
+		    InetSocketAddress sendAddress = singleReaderSocketAddress.get();
+		    if (sendAddress == null)
+		    	sendAddress = multicastAddress;
+
+		    BufferEntry be = takeFreeBuffer(sendAddress);
 	    	ByteBuffer serializationBuffer = be.buffer;
 
 	    	Protocol.addMessageHeader(serializationBuffer);
@@ -880,7 +918,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 					    // lock is being held
 					    be.sequenceNo = writerSequenceNumber.get();
 		    			sendBuffer(be);
-		    			be = takeFreeBuffer();
+		    			be = takeFreeBuffer(sendAddress);
 		    	    	serializationBuffer = be.buffer;
 
 		    			Protocol.addMessageHeader(serializationBuffer);
@@ -909,7 +947,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    private long lastSentSeqNo = 0;
 	    private final AtomicLong lastOverridenSeqNo = new AtomicLong(0);
 	    
-	    private BufferEntry takeFreeBuffer() throws InterruptedException
+	    private BufferEntry takeFreeBuffer(InetSocketAddress sendAddress) throws InterruptedException
 	    {
 	    	// TODO close existing one?
 
@@ -931,7 +969,6 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		    	lastOverridenSeqNo.set(seqNo);
 		    }
 
-		    InetSocketAddress sendAddress = multicastAddress;
 		    be.prepare(0, sendAddress);
 
 		    return be;

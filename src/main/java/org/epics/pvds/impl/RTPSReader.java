@@ -540,7 +540,7 @@ public class RTPSReader
 			}
 			else if (lastHeartbeatLastSN == 0)
 			{
-				// RTPS_HEARTBEAT message must be received first or ignore (seqNo obsolete for this receiver) 
+				// RTPS_HEARTBEAT message must be received first, otherwise message is ignored 
 				// NOTE: we accept lastHeartbeatLastSN == 0 && seqNo == 1 not to skip first seqNo
 				// i.e. when receiver is started before transmitter
 				if (seqNo == 1)
@@ -848,10 +848,14 @@ public class RTPSReader
 					// at start we accept only fresh (seqNo >= lastSN) sequences 
 					ignoreSequenceNumbersPrior = lastSN + 1;
 					
+					/*
+					// NOTE: condition below works only if data messages are always multicasted, i.e. no unicast optimisation
 					// do not send ackNack here, first received non-fragmented message will ACK it,
 					// or ackNack will be sent when ignoreSequenceNumbersPrior will be adjusted for fragmented message
 					// unless there is no data (or first message) in remote buffers
 					sendAckNack = (firstSN == lastSN);
+					*/
+					sendAckNack = true;
 				}
 				else
 				{
