@@ -166,7 +166,8 @@ public class TestBandwidth {
 
 		    lastSendTime = System.nanoTime();	// TODO adjust nanoTime() overhead?
 
-		    discoveryUnicastChannel.send(b, multicastAddress);
+		    while (b.hasRemaining())
+		    	discoveryUnicastChannel.send(b, multicastAddress);
 		    
 	    }
 	    

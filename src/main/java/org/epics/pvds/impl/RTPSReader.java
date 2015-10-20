@@ -503,7 +503,8 @@ public class RTPSReader
 	    	ackNackBuffer.flip();
 
 		    try {
-				unicastChannel.send(ackNackBuffer, receiver.receivedFrom);
+		    	while (ackNackBuffer.hasRemaining())
+		    		unicastChannel.send(ackNackBuffer, receiver.receivedFrom);
 			} catch (IOException e) {
 				e.printStackTrace();
 				return false;

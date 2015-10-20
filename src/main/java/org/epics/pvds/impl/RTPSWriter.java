@@ -708,7 +708,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		    	lastMulticastHeartbeatTime = now;
 		    }
     		
-		    while (heartbeatBuffer.remaining() > 0)
+		    while (heartbeatBuffer.hasRemaining())
 		    	unicastChannel.send(heartbeatBuffer, sendAddress);
 
 		    return true;
@@ -728,6 +728,8 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    // TODO heartbeat, acknack are not excluded (do not sent lastSendTime)
 	    private long lastSendTime = 0;
 	    
+	    private final AtomicBoolean stopped = new AtomicBoolean();
+	    
 	    public void sendProcess() throws IOException, InterruptedException
 	    {
 	    	int messagesSinceLastHeartbeat = 0;
@@ -739,6 +741,10 @@ public class RTPSWriter implements PeriodicTimerCallback {
 			    BufferEntry be = sendQueue.poll();
 			    if (be == null)
 			    {
+			    	// stop when all data is sent
+			    	if (stopped.get())
+			    		break;
+			    	
 				    //System.out.println("resendRequestsPending: " + resendRequestsPending.get());
 			    	if (resendRequestsPending.get() > 0)
 			    	{
@@ -792,9 +798,9 @@ public class RTPSWriter implements PeriodicTimerCallback {
 				    	//System.out.println("tx: " + be.sequenceNo);
 				    }
 				    be.buffer.flip();
-				    // TODO use unicast if there is only one reader !!!
+
 				    // NOTE: yes, send can send 0 or be.buffer.remaining() 
-				    while (be.buffer.remaining() > 0)
+				    while (be.buffer.hasRemaining())
 				    	unicastChannel.send(be.buffer, be.sendAddress);
 				}
 				finally
@@ -869,6 +875,10 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		// not thread-safe
 	    public long send(ByteBuffer data) throws InterruptedException
 	    {
+	    	int dataSize = data.remaining();
+	    	if (dataSize == 0)
+	    		throw new IllegalArgumentException("empty buffer");
+	    		
 	    	// TODO configurable
 	    	// no readers, no sending
 	    	if (readerCount.get() == 0)
@@ -878,8 +888,6 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    		return 0;
 	    	}
 	    	
-	    	int dataSize = data.remaining();
-
 		    // unicast vs multicast
 		    InetSocketAddress sendAddress = singleReaderSocketAddress.get();
 		    if (sendAddress == null)
@@ -992,9 +1000,10 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    
 	    private final AtomicBoolean started = new AtomicBoolean();
 	    public void start() {
-		    new Thread(() -> {
-    			if (started.getAndSet(true))
-    				return;
+			if (started.getAndSet(true))
+				return;
+
+	    	new Thread(() -> {
 	    		try
 	    		{
     				sendProcess();
@@ -1004,6 +1013,11 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    			th.printStackTrace();
 	    		}
 		    }, "writer-thread").start();
+	    }
+	    
+	    public void stop()
+	    {
+    		stopped.set(true);
 	    }
 
 	    public GUID getGUID() {

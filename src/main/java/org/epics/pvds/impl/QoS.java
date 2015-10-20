@@ -20,4 +20,16 @@ public final class QoS {
 			this.limit = limit;
 		}
 	};
+
+	public static final WriterQOS[] DEFAULT_WRITER_QOS = null;
+	public static final ReaderQOS[] DEFAULT_READER_QOS = null;
+
+	
+	public static final ReaderQOS[] RELIABLE_ORDERED_QOS = new ReaderQOS[] {
+		QOS_RELIABLE, QOS_ORDERED
+	};
+
+	public static final ReaderQOS[] UNRELIABLE_UNORDERED_QOS = new ReaderQOS[] {
+	};
+
 }

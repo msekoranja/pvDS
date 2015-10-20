@@ -66,6 +66,11 @@ public class RTPSParticipant extends RTPSEndPoint
     	return reader;
     }
 	    
+    public RTPSWriter createWriter(int writerId, int maxMessageSize, int messageQueueSize)
+    {
+    	return createWriter(writerId, maxMessageSize, messageQueueSize, QoS.DEFAULT_WRITER_QOS, null);
+    }
+
     public RTPSWriter createWriter(int writerId,
     		int maxMessageSize, int messageQueueSize,
     		QoS.WriterQOS[] qos, RTPSWriterListener listener)
@@ -305,11 +310,13 @@ public class RTPSParticipant extends RTPSEndPoint
     
     public final long PERIODIC_TIMER_MS = 1000;
     private final AtomicBoolean started = new AtomicBoolean();
+    private final AtomicBoolean stopped = new AtomicBoolean();
     public final void start()
     {
+		if (started.getAndSet(true))
+			return;
+		
 	    new Thread(() -> {
-    		if (started.getAndSet(true))
-    			return;
     		
     		try
     		{
@@ -326,8 +333,7 @@ public class RTPSParticipant extends RTPSEndPoint
 	    	    ByteBuffer buffer = ByteBuffer.allocate(65536);
     			
 	    	    long lastPeriodicTimer = System.currentTimeMillis();
-	    	    // TODO destroy/stop
-    			while (true)
+    			while (!stopped.get())
     			{
     				int keys = selector.select(PERIODIC_TIMER_MS);
     				if (keys > 0)
@@ -360,6 +366,11 @@ public class RTPSParticipant extends RTPSEndPoint
     		}
 	    }, "processor-rx-thread").start();
     	
+    }
+
+    public void stop()
+    {
+		stopped.set(true);
     }
     
 }
