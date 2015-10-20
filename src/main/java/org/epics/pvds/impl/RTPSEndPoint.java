@@ -32,11 +32,16 @@ public class RTPSEndPoint
     protected InetAddress multicastGroup;
     protected int multicastPort;
 	
+    protected final GUIDPrefix guidPrefix;
 	protected final NetworkInterface nif;
 	protected final int participantId;
     
-	public RTPSEndPoint(String multicastNIF, int domainId, boolean enableMulticastChannel) throws Throwable
+	public RTPSEndPoint(GUIDPrefix guidPrefix, String multicastNIF, int domainId, boolean enableMulticastChannel) throws Throwable
 	{
+		if (guidPrefix == null)
+			throw new IllegalArgumentException("guidPrefix == null");
+		this.guidPrefix = guidPrefix;
+		
 		if (domainId > Protocol.MAX_DOMAIN_ID)
 			throw new IllegalArgumentException("domainId >= " + String.valueOf(Protocol.MAX_DOMAIN_ID));
 

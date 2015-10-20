@@ -21,7 +21,6 @@ import java.util.concurrent.locks.ReentrantLock;
 import org.epics.pvds.Protocol;
 import org.epics.pvds.Protocol.EntityId;
 import org.epics.pvds.Protocol.GUID;
-import org.epics.pvds.Protocol.GUIDPrefix;
 import org.epics.pvds.Protocol.SequenceNumberSet;
 import org.epics.pvds.Protocol.SubmessageHeader;
 import org.epics.pvds.impl.RTPSParticipant.PeriodicTimerCallback;
@@ -170,7 +169,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    	this.stats = participant.getStatistics();
 	    	this.unicastChannel = participant.getUnicastChannel();
 			this.writerId = writerId;
-			this.writerGUID = new GUID(GUIDPrefix.GUIDPREFIX, new EntityId(writerId));
+			this.writerGUID = new GUID(participant.guidPrefix, new EntityId(writerId));
 			this.listener = listnener;
 			
 			if (maxMessageSize <= 0)
@@ -694,7 +693,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	   			return false;
 	   		heartbeatBuffer.clear();
 
-	   		Protocol.addMessageHeader(heartbeatBuffer);
+	   		Protocol.addMessageHeader(writerGUID.prefix, heartbeatBuffer);
     		addHeartbeatSubmessage(heartbeatBuffer, firstSN, lastSentSeqNo);
     		heartbeatBuffer.flip();
  
@@ -896,7 +895,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		    BufferEntry be = takeFreeBuffer(sendAddress);
 	    	ByteBuffer serializationBuffer = be.buffer;
 
-	    	Protocol.addMessageHeader(serializationBuffer);
+	    	Protocol.addMessageHeader(writerGUID.prefix, serializationBuffer);
 		    
 		    if ((dataSize + DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN) <= serializationBuffer.remaining())
 		    	addDataSubmessage(serializationBuffer, data, dataSize);
@@ -929,7 +928,7 @@ public class RTPSWriter implements PeriodicTimerCallback {
 		    			be = takeFreeBuffer(sendAddress);
 		    	    	serializationBuffer = be.buffer;
 
-		    			Protocol.addMessageHeader(serializationBuffer);
+		    			Protocol.addMessageHeader(writerGUID.prefix, serializationBuffer);
 		    		}
 		    		else
 		    		{

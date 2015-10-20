@@ -9,10 +9,10 @@ public class CounterWriter {
 
 	public static void main(String[] args) throws Throwable {
 		
-		RTPSParticipant participant = new RTPSParticipant(Constants.LOCAL_MCAST_NIF, Constants.DOMAIN_ID, true);
+		RTPSParticipant participant = new RTPSParticipant(Constants.WRITER_GUID_PREFIX, Constants.LOCAL_MCAST_NIF, Constants.DOMAIN_ID, true);
 		participant.start();
 		
-		RTPSWriter writer = participant.createWriter(0, CounterData.MESSAGE_SIZE, 1);
+		RTPSWriter writer = participant.createWriter(Constants.WRITER_ID, CounterData.MESSAGE_SIZE, 1);
 	    System.out.println("Writer GUID: " + writer.getGUID());
 		writer.start();
 		

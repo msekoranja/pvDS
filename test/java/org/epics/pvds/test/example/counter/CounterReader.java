@@ -13,7 +13,7 @@ public class CounterReader {
 		RTPSParticipant participant = new RTPSParticipant(Constants.LOCAL_MCAST_NIF, Constants.DOMAIN_ID, false);
 		participant.start();
 		
-		GUID writerGUID = GUID.parse(args[0]);
+		GUID writerGUID = Constants.WRITER_GUID; //GUID.parse(args[0]);
 		RTPSReader reader = participant.createReader(
 				0, writerGUID,
 				CounterData.MESSAGE_SIZE, 1,

@@ -30,6 +30,8 @@ public class RTPSReader
 
     protected final DatagramChannel unicastChannel;
 
+    protected final GUIDPrefix guidPrefix;
+    
     /**
      * This instance reader ID.
      */
@@ -71,6 +73,14 @@ public class RTPSReader
 	    
 	    private final RTPSReaderListener listener;
 	    
+	    public RTPSReader(RTPSParticipant participant,
+	    		int readerId, int writerId,
+	    		int maxMessageSize, int messageQueueSize)
+	    {
+	    	this(participant, readerId, writerId, maxMessageSize, messageQueueSize,
+	    		 QoS.DEFAULT_READER_QOS, null);
+	    }
+
 	    /**
 	     * Constructor.
 	     * Total allocated buffer size = messageQueueSize * maxMessageSize;
@@ -91,6 +101,7 @@ public class RTPSReader
 	    	this.receiver = participant.getReceiver();
 	    	this.stats = participant.getStatistics();
 	    	this.unicastChannel = participant.getUnicastChannel();
+	    	this.guidPrefix = participant.getGUIDPrefix();
 			this.readerId = readerId;
 			this.writerId = writerId;
 			this.listener = listener;
@@ -498,7 +509,7 @@ public class RTPSReader
 //System.out.println("sending ACKNACK: " + readerSNState.bitmapBase + ", " + readerSNState.bitmap);
 
 	    	ackNackBuffer.clear();
-	    	Protocol.addMessageHeader(ackNackBuffer);
+	    	Protocol.addMessageHeader(guidPrefix, ackNackBuffer);
 	    	addAckNackSubmessage(ackNackBuffer, readerSNState);
 	    	ackNackBuffer.flip();
 
@@ -1063,6 +1074,6 @@ public class RTPSReader
 		}
 
 	    public GUID getGUID() {
-	    	return new GUID(GUIDPrefix.GUIDPREFIX, new EntityId(readerId));
+	    	return new GUID(guidPrefix, new EntityId(readerId));
 	    }
 	}

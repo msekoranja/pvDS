@@ -39,9 +39,13 @@ public class RTPSParticipant extends RTPSEndPoint
     protected final Map<GUIDHolder, RTPSReader> writer2readerMapping = new HashMap<GUIDHolder, RTPSReader>(INITIAL_W2R_CAPACITY);
    
     public RTPSParticipant(String multicastNIF, int domainId, boolean writersOnly) throws Throwable {
-		super(multicastNIF, domainId, !writersOnly);
+		this(GUIDPrefix.GUIDPREFIX, multicastNIF, domainId, writersOnly);
 	}
     
+    public RTPSParticipant(GUIDPrefix guidPrefix, String multicastNIF, int domainId, boolean writersOnly) throws Throwable {
+		super(guidPrefix, multicastNIF, domainId, !writersOnly);
+	}
+
     public RTPSReader createReader(int readerId, GUID writerGUID,
     		int maxMessageSize, int messageQueueSize,
     		QoS.ReaderQOS[] qos, RTPSReaderListener listener)
@@ -50,7 +54,7 @@ public class RTPSParticipant extends RTPSEndPoint
     	if (multicastChannel == null)
     		throw new IllegalStateException("cannot create reader on writersOnly participant");
     		
-    	GUIDHolder guid = new GUIDHolder(GUIDPrefix.GUIDPREFIX.value, readerId);
+    	GUIDHolder guid = new GUIDHolder(guidPrefix.value, readerId);
 
     	if (readers.containsKey(guid))
     		throw new RuntimeException("Reader with such readerId already exists.");
@@ -75,7 +79,7 @@ public class RTPSParticipant extends RTPSEndPoint
     		int maxMessageSize, int messageQueueSize,
     		QoS.WriterQOS[] qos, RTPSWriterListener listener)
     {
-    	GUIDHolder guid = new GUIDHolder(GUIDPrefix.GUIDPREFIX.value, writerId);
+    	GUIDHolder guid = new GUIDHolder(guidPrefix.value, writerId);
 
     	if (writers.containsKey(guid))
     		throw new RuntimeException("Writer with such writerId already exists.");
@@ -244,7 +248,7 @@ public class RTPSParticipant extends RTPSEndPoint
 					receiver.sourceGuidHolder.set(receiver.sourceGuidPrefix, receiver.readerId);
 
 					// ACKNACK is an unicast response, use local GUID + receiver.writerId
-					localWriterGUID.set(GUIDPrefix.GUIDPREFIX.value, receiver.writerId);
+					localWriterGUID.set(guidPrefix.value, receiver.writerId);
 					RTPSWriter writer = writers.get(localWriterGUID);
 					if (writer != null)
 						writer.processAckNackSubMessage(buffer);
@@ -295,6 +299,11 @@ public class RTPSParticipant extends RTPSEndPoint
     	periodicTimerSubscribers.remove(key);
     }
 
+    GUIDPrefix getGUIDPrefix()
+    {
+    	return guidPrefix;
+    }
+    
     public void periodicTimer(long now)
     {
     	for (PeriodicTimerCallback cb : periodicTimerSubscribers.values())

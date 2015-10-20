@@ -77,6 +77,10 @@ public final class Protocol {
 		}
 		
 		public GUIDPrefix(byte[] value) {
+			
+			if (value.length != 12)
+				throw new IllegalArgumentException("value.length != 12");
+				
 			this.value = value;
 		}
 		
@@ -416,11 +420,11 @@ In case the octetsToNextHeader==0 and the kind of Submessage is PAD or INFO_TS, 
     	
     }
 
-    public static final void addMessageHeader(ByteBuffer buffer)
+    public static final void addMessageHeader(GUIDPrefix guidPrefix, ByteBuffer buffer)
     {
 	    // MessageHeader
     	buffer.putLong(HEADER_NO_GUID);
-	    buffer.put(GUIDPrefix.GUIDPREFIX.value);
+	    buffer.put(guidPrefix.value);
     }
 
     public static final void addSubmessageHeader(ByteBuffer buffer, 
