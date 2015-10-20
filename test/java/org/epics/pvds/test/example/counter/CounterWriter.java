@@ -25,8 +25,13 @@ public class CounterWriter {
 			counterData.serialize(buffer);
 			buffer.flip();
 
-			writer.send(buffer);
-
+			// UNRELIABLE writer
+			//writer.send(buffer);
+			
+			// RELIABLE writer
+			if (!writer.send(buffer, Constants.ACK_TIMEOUT_MS))
+				System.err.println(counterData.count + " not ACKed by all reliable readers");
+			
 			// 10Hz
 			Thread.sleep(100);
 			counterData.incrementAndUpdateTimestamp();

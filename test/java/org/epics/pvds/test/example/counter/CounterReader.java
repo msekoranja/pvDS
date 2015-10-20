@@ -16,7 +16,8 @@ public class CounterReader {
 		GUID writerGUID = Constants.WRITER_GUID; //GUID.parse(args[0]);
 		RTPSReader reader = participant.createReader(
 				0, writerGUID,
-				CounterData.MESSAGE_SIZE, 1,
+				CounterData.MESSAGE_SIZE, 2,		// TODO RELIABLE/ORDERED requires queueSize > 1
+//				QoS.RELIABLE_ORDERED_QOS, null
 				QoS.UNRELIABLE_UNORDERED_QOS, null
 				);
 		
@@ -26,7 +27,7 @@ public class CounterReader {
 			try (SharedBuffer sharedBuffer = reader.waitForNewData(Constants.READ_TIMEOUT_MS))
 			{
 				if (sharedBuffer == null)
-					System.err.println("timeout");
+					System.err.println("no data");
 				else
 				{
 					counterData.deserialize(sharedBuffer.getBuffer());

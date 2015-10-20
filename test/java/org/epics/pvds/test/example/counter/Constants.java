@@ -19,4 +19,6 @@ public interface Constants {
 	public static final int DOMAIN_ID = 0;
 
 	public static final long READ_TIMEOUT_MS = 10*1000;
+
+	public static final long ACK_TIMEOUT_MS = 1000;
 }

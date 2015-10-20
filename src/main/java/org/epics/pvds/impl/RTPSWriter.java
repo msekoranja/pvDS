@@ -490,6 +490,11 @@ public class RTPSWriter implements PeriodicTimerCallback {
 	    	}
 	    }
 
+	    public boolean send(ByteBuffer data, long timeout) throws InterruptedException
+	    {
+	    	long seqNo = send(data);
+	    	return waitUntilAcked(seqNo, timeout);
+	    }
 	    
 	    private static final int DATA_HEADER_LEN = 20;
 	    private static final int DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN = 24;
