@@ -153,6 +153,7 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
     ///
     private final static int LIMIT_READERS_DEFAULT = Integer.MAX_VALUE;
     private final int limitReaders;
+    private final boolean alwaysSend;
 
     /**
      * Constructor.
@@ -185,6 +186,7 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 		/// 
 		
 	    int limitReaders = LIMIT_READERS_DEFAULT;
+	    boolean alwaysSend = false;
 		if (qos != null)
 		{
 			for (QoS.WriterQOS wq: qos)
@@ -192,6 +194,10 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 				if (wq instanceof QoS.QOS_LIMIT_READERS)
 				{
 					limitReaders = ((QoS.QOS_LIMIT_READERS)wq).limit;
+				}
+				else if (wq == QoS.QOS_ALWAYS_SEND)
+				{
+					alwaysSend = true;
 				}
 				else 
 				{
@@ -201,7 +207,7 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 			}
 		}
 		this.limitReaders = limitReaders;
-
+		this.alwaysSend = alwaysSend;
 		
 		// sender setup
 	    try {
@@ -255,6 +261,7 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 	    
 	    // add support for noop heartbeats
 	    // used when there is no readers
+	    // this implies first seqNo will be 2
 	    writerSequenceNumber.incrementAndGet();
 	    lastSentSeqNo = 1;
 	    
@@ -884,10 +891,11 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
     	int dataSize = data.remaining();
     	if (dataSize == 0)
     		throw new IllegalArgumentException("empty buffer");
+    	else if (dataSize < Long.BYTES)	// FREE_MARK Size
+    		throw new IllegalArgumentException("buffer too small, must be at least " + Long.BYTES + " bytes long");
     		
-    	// TODO configurable
     	// no readers, no sending
-    	if (readerCount.get() == 0)
+    	if (!alwaysSend && readerCount.get() == 0)
     	{
     		// mark buffer as consumed
     		data.position(data.limit());

@@ -13,6 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.epics.pvds.Protocol;
+import org.epics.pvds.Protocol.EntityId;
 import org.epics.pvds.Protocol.GUID;
 import org.epics.pvds.Protocol.GUIDPrefix;
 import org.epics.pvds.Protocol.ProtocolVersion;
@@ -60,7 +61,9 @@ public class RTPSParticipant extends RTPSEndPoint implements AutoCloseable
     	// writersOnly participant
     	if (multicastChannel == null)
     		throw new IllegalStateException("cannot create reader on writersOnly participant");
-    		
+    
+    	EntityId.verifyEntityKey(readerId);
+    	
     	GUIDHolder guid = new GUIDHolder(guidPrefix.value, readerId);
 
     	if (readers.containsKey(guid))
@@ -93,6 +96,8 @@ public class RTPSParticipant extends RTPSEndPoint implements AutoCloseable
     		int maxMessageSize, int messageQueueSize,
     		QoS.WriterQOS[] qos, RTPSWriterListener listener)
     {
+    	EntityId.verifyEntityKey(writerId);
+
     	GUIDHolder guid = new GUIDHolder(guidPrefix.value, writerId);
 
     	if (writers.containsKey(guid))

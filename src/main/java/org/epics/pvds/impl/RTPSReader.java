@@ -61,6 +61,7 @@ public class RTPSReader implements AutoCloseable
     private final int maxMessageSize;
     private final int messageQueueSize;
 
+    private final int MIN_MAX_MESSAGE_SIZE = Long.BYTES;	// FREE_MARK must fit
     ///
     /// QoS
     ///
@@ -107,6 +108,8 @@ public class RTPSReader implements AutoCloseable
 		
 		if (maxMessageSize <= 0)
 			throw new IllegalArgumentException("maxMessageSize <= 0");
+		else if (maxMessageSize < MIN_MAX_MESSAGE_SIZE)
+			maxMessageSize = MIN_MAX_MESSAGE_SIZE;
 		this.maxMessageSize = maxMessageSize;
 		
 		if (messageQueueSize <= 0)
@@ -377,7 +380,8 @@ public class RTPSReader implements AutoCloseable
 	    	int pos = 0;
 	    	while (pos < dataSize)
 	    	{
-	    		buffer.putLong(pos, FREE_MARK);
+	    		// TODO this is not a perfect solution (requires min. size of 8 bytes, and if data matches the value of FREE_MARK... and there a duplicate...)
+	    		buffer.putLong(pos, FREE_MARK);	 
 	    		pos += fragmentSize;
 	    	}
     		
@@ -551,12 +555,13 @@ public class RTPSReader implements AutoCloseable
 		}
 		else if (lastHeartbeatLastSN == 0)
 		{
+			final int FIRST_SEQ_NO = 2;	// see end of RTPSWriter constructor
 			// RTPS_HEARTBEAT message must be received first, otherwise message is ignored 
 			// NOTE: we accept lastHeartbeatLastSN == 0 && seqNo == 1 not to skip first seqNo
 			// i.e. when receiver is started before transmitter
-			if (seqNo == 1)
+			if (seqNo == FIRST_SEQ_NO)
 			{
-				lastHeartbeatLastSN = 1; // == seqNo;
+				lastHeartbeatLastSN = FIRST_SEQ_NO; // == seqNo;
 			}
 			else
 			{

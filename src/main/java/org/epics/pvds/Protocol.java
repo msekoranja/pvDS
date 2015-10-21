@@ -125,6 +125,12 @@ public final class Protocol {
 			value = entityKey << 8 | entityKind;
 		}
 		
+		public static void verifyEntityKey(int entityKey)
+		{
+			if (entityKey < 0 || entityKey > 0x00FFFFFF)
+				throw new IllegalArgumentException("entityKey < 0 || entityKey > 0x00FFFFFF");
+		}
+		
 		public EntityId(int entityId)
 		{
 			value = entityId;

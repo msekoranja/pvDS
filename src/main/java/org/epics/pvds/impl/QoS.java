@@ -7,9 +7,9 @@ public final class QoS {
 	public interface WriterQOS extends QOS {};
 	
 	// implies QOS_ORDERED
-	public static ReaderQOS QOS_RELIABLE = new ReaderQOS() {};
+	public static final ReaderQOS QOS_RELIABLE = new ReaderQOS() {};
 
-	public static ReaderQOS QOS_ORDERED = new ReaderQOS() {};
+	public static final ReaderQOS QOS_ORDERED = new ReaderQOS() {};
 
 	public static class QOS_LIMIT_READERS implements WriterQOS {
 		public int limit;
@@ -20,6 +20,9 @@ public final class QoS {
 			this.limit = limit;
 		}
 	};
+
+	// always send messages, even if there is no readers
+	public static final WriterQOS QOS_ALWAYS_SEND = new WriterQOS() {};
 
 	public static final WriterQOS[] DEFAULT_WRITER_QOS = null;
 	public static final ReaderQOS[] DEFAULT_READER_QOS = null;
