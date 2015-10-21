@@ -38,7 +38,7 @@ public class CounterWriter {
 		}
 		
 		//writer.stop();
-		//participant.stop();
+		//participant.close();
 		
 	}
 

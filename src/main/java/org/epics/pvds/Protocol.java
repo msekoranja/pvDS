@@ -9,6 +9,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 import java.util.UUID;
 
 import org.epics.pvds.util.BitSet;
@@ -66,7 +67,7 @@ public final class Protocol {
 		
 		public static final byte[] GUIDPREFIX_UNKNOWN_VALUE = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 		
-		private GUIDPrefix() {
+		public GUIDPrefix() {
 			value = new byte[12];
 			
 			// put first 12-bytes of UUID into the prefix byte-array
@@ -86,7 +87,13 @@ public final class Protocol {
 		
 		public static final GUIDPrefix GUIDPREFIX_UNKNOWN = new GUIDPrefix(GUIDPREFIX_UNKNOWN_VALUE);
 
-		public static final GUIDPrefix GUIDPREFIX = new GUIDPrefix();
+		@Override
+		public boolean equals(Object obj) {
+			if (obj instanceof GUIDPrefix)
+				return Arrays.equals(value, ((GUIDPrefix)obj).value);
+			else
+				return false;
+		}
 	}
 
 	public static class EntityId {

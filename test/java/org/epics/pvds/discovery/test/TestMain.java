@@ -46,7 +46,7 @@ public class TestMain {
 			new DiscoveryServiceImpl<String>(
 					30*1000,
 					1*1000,
-					new GUID(GUIDPrefix.GUIDPREFIX, EntityId.generateParticipantEntityId(participandId.incrementAndGet())),
+					new GUID(new GUIDPrefix(), EntityId.generateParticipantEntityId(participandId.incrementAndGet())),
 					dataSet,
 					StringToByteArraySerializator.INSTANCE
 				);

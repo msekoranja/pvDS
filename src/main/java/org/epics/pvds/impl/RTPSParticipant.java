@@ -6,6 +6,7 @@ import java.nio.ByteOrder;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -23,7 +24,7 @@ import org.epics.pvds.Protocol.VendorId;
  * The class itself is not thread-safe.
  * @author msekoranja
  */
-public class RTPSParticipant extends RTPSEndPoint
+public class RTPSParticipant extends RTPSEndPoint implements AutoCloseable
 {
 	protected final MessageReceiver receiver = new MessageReceiver();
     protected final MessageReceiverStatistics stats = new MessageReceiverStatistics();
@@ -38,14 +39,20 @@ public class RTPSParticipant extends RTPSEndPoint
     private static final int INITIAL_W2R_CAPACITY = 16;
     protected final Map<GUIDHolder, RTPSReader> writer2readerMapping = new HashMap<GUIDHolder, RTPSReader>(INITIAL_W2R_CAPACITY);
    
-    public RTPSParticipant(String multicastNIF, int domainId, boolean writersOnly) throws Throwable {
-		this(GUIDPrefix.GUIDPREFIX, multicastNIF, domainId, writersOnly);
+    public RTPSParticipant(String multicastNIF, int domainId, boolean writersOnly) {
+		this(new GUIDPrefix(), multicastNIF, domainId, writersOnly);
 	}
     
-    public RTPSParticipant(GUIDPrefix guidPrefix, String multicastNIF, int domainId, boolean writersOnly) throws Throwable {
+    public RTPSParticipant(GUIDPrefix guidPrefix, String multicastNIF, int domainId, boolean writersOnly) {
 		super(guidPrefix, multicastNIF, domainId, !writersOnly);
 	}
 
+    public RTPSReader createReader(int readerId, GUID writerGUID,
+    		int maxMessageSize, int messageQueueSize)
+    {
+    	return createReader(readerId, writerGUID, maxMessageSize, messageQueueSize, QoS.DEFAULT_READER_QOS, null);
+    }
+    
     public RTPSReader createReader(int readerId, GUID writerGUID,
     		int maxMessageSize, int messageQueueSize,
     		QoS.ReaderQOS[] qos, RTPSReaderListener listener)
@@ -59,15 +66,22 @@ public class RTPSParticipant extends RTPSEndPoint
     	if (readers.containsKey(guid))
     		throw new RuntimeException("Reader with such readerId already exists.");
     		
-    	RTPSReader reader = new RTPSReader(this, readerId, writerGUID.entityId.value,
+    	RTPSReader reader = new RTPSReader(this, readerId, writerGUID,
     			maxMessageSize, messageQueueSize, qos, listener);
     	readers.put(guid, reader);
 
-    	// TODO destroy mapping
     	// mapping
     	writer2readerMapping.put(new GUIDHolder(writerGUID), reader);
     	
     	return reader;
+    }
+    
+    void destroyReader(int readerId, GUID writerGUID)
+    {
+    	writer2readerMapping.remove(new GUIDHolder(writerGUID));
+
+    	GUIDHolder guid = new GUIDHolder(guidPrefix.value, readerId);
+    	readers.remove(guid);
     }
 	    
     public RTPSWriter createWriter(int writerId, int maxMessageSize, int messageQueueSize)
@@ -87,6 +101,12 @@ public class RTPSParticipant extends RTPSEndPoint
     	RTPSWriter writer = new RTPSWriter(this, writerId, maxMessageSize, messageQueueSize, qos, listener);
     	writers.put(guid, writer);
     	return writer;
+    }
+
+    void destroyWriter(int writerId)
+    {
+    	GUIDHolder guid = new GUIDHolder(guidPrefix.value, writerId);
+    	writers.remove(guid);
     }
 
     private final GUIDHolder localWriterGUID = new GUIDHolder();
@@ -299,7 +319,7 @@ public class RTPSParticipant extends RTPSEndPoint
     	periodicTimerSubscribers.remove(key);
     }
 
-    GUIDPrefix getGUIDPrefix()
+    public final GUIDPrefix getGUIDPrefix()
     {
     	return guidPrefix;
     }
@@ -320,7 +340,7 @@ public class RTPSParticipant extends RTPSEndPoint
     public final long PERIODIC_TIMER_MS = 1000;
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean stopped = new AtomicBoolean();
-    public final void start()
+    public void start()
     {
 		if (started.getAndSet(true))
 			return;
@@ -382,4 +402,16 @@ public class RTPSParticipant extends RTPSEndPoint
 		stopped.set(true);
     }
     
+    // suppresses AutoCloseable.close() exception
+	@Override
+	public void close()
+	{
+		ArrayList<RTPSWriter> writersArray = new ArrayList<RTPSWriter>(writers.values());
+		writersArray.forEach((writer) -> writer.close());
+		
+		ArrayList<RTPSReader> readersArray = new ArrayList<RTPSReader>(readers.values());
+		readersArray.forEach((reader) -> reader.close());
+		
+		stop();
+	}
 }

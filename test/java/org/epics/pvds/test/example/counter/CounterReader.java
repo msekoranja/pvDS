@@ -37,7 +37,7 @@ public class CounterReader {
 			
 		}
 		
-		//participant.stop();
+		//participant.close();
 		
 	}
 
