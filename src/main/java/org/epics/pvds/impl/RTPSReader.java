@@ -157,7 +157,7 @@ public class RTPSReader implements AutoCloseable
 	    
 	    newDataQueue = new ArrayBlockingQueue<SharedBuffer>(messageQueueSize);
 		
-	    ByteBuffer buffer = ByteBuffer.allocate(messageQueueSize*maxMessageSize);
+	    final ByteBuffer buffer = ByteBuffer.allocate(messageQueueSize*maxMessageSize);
 		
 	    synchronized (freeFragmentationBuffers) {
 		    int pos = 0;
@@ -562,7 +562,7 @@ public class RTPSReader implements AutoCloseable
 			// i.e. when receiver is started before transmitter
 			if (seqNo == FIRST_SEQ_NO)
 			{
-				lastHeartbeatLastSN = FIRST_SEQ_NO; // == seqNo;
+				ignoreSequenceNumbersPrior = lastHeartbeatLastSN = FIRST_SEQ_NO; // == seqNo;
 			}
 			else
 			{

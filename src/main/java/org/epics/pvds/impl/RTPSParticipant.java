@@ -364,7 +364,7 @@ public class RTPSParticipant extends RTPSEndPoint implements AutoCloseable
 	    		unicastChannel.register(selector, SelectionKey.OP_READ, unicastChannel);
 	    		
 	    		
-	    	    ByteBuffer buffer = ByteBuffer.allocate(65536);
+	    	    final ByteBuffer buffer = ByteBuffer.allocate(65536);
     			
 	    	    long lastPeriodicTimer = System.currentTimeMillis();
     			while (!stopped.get())

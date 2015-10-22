@@ -53,7 +53,7 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 	// NOTE: Giga means 10^9 (not 1024^3)
     private final double udpTxRateGbitPerSec = Double.valueOf(System.getProperty("PVDS_MAX_THROUGHPUT", "0.90")); // TODO make configurable, figure out better default!!!
     private final int MESSAGE_ALIGN = 32;
-    private final int MAX_PACKET_SIZE_BYTES_CONF = Integer.valueOf(System.getProperty("PVDS_MAX_UDP_PACKET_SIZE", "8000"));
+    private final int MAX_PACKET_SIZE_BYTES_CONF = Math.max(64, Integer.valueOf(System.getProperty("PVDS_MAX_UDP_PACKET_SIZE", "8000")));
     private final int MAX_PACKET_SIZE_BYTES = ((MAX_PACKET_SIZE_BYTES_CONF + MESSAGE_ALIGN - 1) / MESSAGE_ALIGN) * MESSAGE_ALIGN;
     private long delay_ns = (long)(MAX_PACKET_SIZE_BYTES * 8 / udpTxRateGbitPerSec);
 
@@ -232,14 +232,16 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 	    ///
 	    /// allocate and initialize buffers
 	    ///
-	    
+
 	    // add space for header(s)
 	    int packetSize = maxMessageSize + DATA_HEADER_LEN + DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN;
 	    int bufferSlots = messageQueueSize;
-	    
+
 	    if (packetSize > MAX_PACKET_SIZE_BYTES)
 	    {
-		    int slotsPerMessage = (maxMessageSize + MAX_PACKET_SIZE_BYTES - 1) / MAX_PACKET_SIZE_BYTES;
+	    	// NOTE: min MAX_PACKET_SIZE_BYTES > (DATA_HEADER_LEN + DATA_FRAG_SUBMESSAGE_NO_QOS_PREFIX_LEN), i.e. 64 > 56
+	    	int pureMessageBytes = MAX_PACKET_SIZE_BYTES - DATA_HEADER_LEN - DATA_FRAG_SUBMESSAGE_NO_QOS_PREFIX_LEN;	
+		    int slotsPerMessage = (maxMessageSize + pureMessageBytes - 1) / pureMessageBytes;
 		    bufferSlots *= slotsPerMessage;
 		    packetSize = MAX_PACKET_SIZE_BYTES;
 	    }
@@ -250,7 +252,7 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 	    freeQueue = new ArrayBlockingQueue<BufferEntry>(bufferSlots);
 	    sendQueue = new ArrayBlockingQueue<BufferEntry>(bufferSlots);
 
-	    ByteBuffer buffer = ByteBuffer.allocate(bufferSlots*packetSize);
+	    final ByteBuffer buffer = ByteBuffer.allocate(bufferSlots*packetSize);
 	
 	    //BufferEntry[] bufferPackets = new BufferEntry[bufferPacketsCount];
 	    int pos = 0;
@@ -519,6 +521,7 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
     
     private static final int DATA_HEADER_LEN = 20;
     private static final int DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN = 24;
+    private static final int DATA_FRAG_SUBMESSAGE_NO_QOS_PREFIX_LEN = 36;
     
     // no fragmentation
     private long addDataSubmessage(ByteBuffer buffer, ByteBuffer data, int dataSize)
@@ -708,22 +711,22 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
     }
     
     // TODO preinitialize, can be fixed
-    final static ByteBuffer heartbeatBuffer = ByteBuffer.allocate(64);
+    private final ByteBuffer heartbeatBuffer = ByteBuffer.allocate(64);
     private long lastMulticastHeartbeatTime;
     private final boolean sendHeartbeatMessage() throws IOException
     {
     	// check if the message is valid (e.g. no messages sent or if lastOverridenSeqNo == lastSentSeqNo)
-	    	long firstSN = lastOverridenSeqNo.get() + 1;
+	    long firstSN = lastOverridenSeqNo.get() + 1;
 	    	
-	   		if (firstSN > lastSentSeqNo)
-	   			return false;
-	   		heartbeatBuffer.clear();
+	   	if (firstSN > lastSentSeqNo)
+	   		return false;
+	   	heartbeatBuffer.clear();
 
-	   		Protocol.addMessageHeader(writerGUID.prefix, heartbeatBuffer);
-    		addHeartbeatSubmessage(heartbeatBuffer, firstSN, lastSentSeqNo);
-    		heartbeatBuffer.flip();
+	   	Protocol.addMessageHeader(writerGUID.prefix, heartbeatBuffer);
+    	addHeartbeatSubmessage(heartbeatBuffer, firstSN, lastSentSeqNo);
+    	heartbeatBuffer.flip();
  
-		    // unicast vs multicast
+    	// unicast vs multicast
 		// multicasting heartbeat is important as they act as announce messages
 	    InetSocketAddress sendAddress = singleReaderSocketAddress.get();
 	    long now = System.currentTimeMillis();
