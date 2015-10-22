@@ -10,6 +10,7 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Logger;
 
 import org.epics.pvds.Protocol;
 import org.epics.pvds.Protocol.GUID;
@@ -24,6 +25,8 @@ import org.epics.pvds.Protocol.SubmessageHeader;
  */
 public class RTPSReader implements AutoCloseable
 {
+	private static final Logger logger = Logger.getLogger(RTPSReader.class.getName());
+
 	protected final RTPSParticipant participant;
 
 	protected final MessageReceiver receiver;
@@ -136,8 +139,7 @@ public class RTPSReader implements AutoCloseable
 				}
 				else 
 				{
-					// TODO log
-					System.out.println("Unsupported reader QoS: " + rq);
+					logger.warning(() -> "Unsupported reader QoS: " + rq);
 				}
 			}
 		}
@@ -169,8 +171,7 @@ public class RTPSReader implements AutoCloseable
 		    }
 		}
 	    
-	    // TODO use logging
-	    System.out.println("Receiver: fragmentation buffer size = " + messageQueueSize + " packets of " + maxMessageSize + " bytes (max payload size)");
+	    logger.config(() -> "Receiver: fragmentation buffer size = " + messageQueueSize + " packets of " + this.maxMessageSize + " bytes (max payload size)");
 
 	}
     

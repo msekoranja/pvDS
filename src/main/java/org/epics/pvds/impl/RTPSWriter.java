@@ -17,6 +17,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import org.epics.pvds.Protocol;
 import org.epics.pvds.Protocol.EntityId;
@@ -29,6 +31,8 @@ import org.epics.pvds.util.BitSet;
 import org.epics.pvds.util.LongDynaHeap;
 
 public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
+
+	private static final Logger logger = Logger.getLogger(RTPSWriter.class.getName());
 
 	protected final RTPSParticipant participant;
 	
@@ -208,8 +212,7 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 				}
 				else 
 				{
-					// TODO log
-					System.out.println("Unsupported writer QoS: " + wq);
+					logger.warning(() -> "Unsupported writer QoS: " + wq);
 				}
 			}
 		}
@@ -272,11 +275,12 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 	    // this implies first seqNo will be 2
 	    writerSequenceNumber.incrementAndGet();
 	    lastSentSeqNo = 1;
-	    
-	    // TODO use logging
-	    System.out.println("Transmitter: buffer size = " + bufferSlots + " packets of " + packetSize + 
-	    				   " bytes, rate limit: " + udpTxRateGbitPerSec + "Gbit/sec (period: " + delay_ns + " ns)");
 
+	    if (logger.isLoggable(Level.CONFIG))
+	    {
+		    logger.config("Transmitter: buffer size = " + bufferSlots + " packets of " + packetSize + 
+		    				   " bytes, rate limit: " + udpTxRateGbitPerSec + "Gbit/sec (period: " + delay_ns + " ns)");
+	    }
 	}
     
     // TODO activeBuffers can have message header initialized only once

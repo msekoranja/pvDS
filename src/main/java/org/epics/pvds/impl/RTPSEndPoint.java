@@ -8,6 +8,7 @@ import java.net.StandardProtocolFamily;
 import java.net.StandardSocketOptions;
 import java.nio.channels.DatagramChannel;
 import java.util.Arrays;
+import java.util.logging.Logger;
 
 import org.epics.pvds.Protocol;
 import org.epics.pvds.Protocol.GUIDPrefix;
@@ -20,6 +21,8 @@ import org.epics.pvds.util.InetAddressUtil;
  */
 public class RTPSEndPoint
 {
+	private static final Logger logger = Logger.getLogger(RTPSEndPoint.class.getName());
+
 	/*
 	protected final DatagramChannel discoveryMulticastChannel;
 	protected final DatagramChannel discoveryUnicastChannel;
@@ -58,7 +61,7 @@ public class RTPSEndPoint
 			if (nif == null)
 				throw new IOException("no network interface available");
 			
-			System.out.println("pvDS multicast NIF: " + nif.getDisplayName());
+			logger.config(() -> "pvDS multicast NIF: " + nif.getDisplayName());
 			
 			// TODO configurable IPv4 multicast prefix
 			
@@ -143,13 +146,13 @@ public class RTPSEndPoint
 	
 			unicastChannel.configureBlocking(false);
 			
-		    // TODO use logging
-		    System.out.println("pvDS multicast group: " + multicastGroup + ":" + multicastPort);
-		    System.out.println("pvDS unicast port: " + unicastPort);
-		    //System.out.println("pvDS discovery multicast group: " + discoveryMulticastGroup + ":" + discoveryMulticastPort);
-		    //System.out.println("pvDS unicast port: " + unicastDiscoveryPort);
-		    System.out.println("pvDS GUID prefix: " + Arrays.toString(guidPrefix.value));
-		    System.out.println("pvDS started: domainId = " + domainId + ", participantId = " + participantId);
+			logger.config(() -> "pvDS multicast group: " + multicastGroup + ":" + multicastPort);
+			final int funicastPort = unicastPort;
+			logger.config(() -> "pvDS unicast port: " + funicastPort);
+		    //logger.config(() -> "pvDS discovery multicast group: " + discoveryMulticastGroup + ":" + discoveryMulticastPort);
+		    //logger.config(() -> "pvDS unicast port: " + unicastDiscoveryPort);
+			logger.config(() -> "pvDS GUID prefix: " + Arrays.toString(guidPrefix.value));
+			logger.config(() -> "pvDS started: domainId = " + domainId + ", participantId = " + participantId);
 		} catch (IOException ioex) {
 			throw new RuntimeException("Failed to instantiate participant: " + ioex.getMessage(), ioex);
 		}
