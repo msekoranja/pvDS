@@ -149,6 +149,7 @@ public class RTPSParticipantTest extends TestCase {
 		}
 	}
 
+	/*
 	private void lossyReliableOrderedCommunication(SeqNoFilter filter, int queueSize) throws InterruptedException
 	{
 		try (RTPSParticipant readerParticipant = new RTPSParticipant(null, 0, false);
@@ -193,6 +194,50 @@ public class RTPSParticipantTest extends TestCase {
 			}
 		}
 	}
+	*/
+
+	private void lossyReliableOrderedCommunication(
+			int id,
+			RTPSParticipant readerParticipant, RTPSParticipant writerParticipant,
+			SeqNoFilter filter, int queueSize) throws InterruptedException
+	{
+			final int MESSAGE_SIZE = Long.BYTES;
+			final int TIMEOUT_MS = 1000;
+			
+			try (
+				RTPSWriter writer = writerParticipant.createWriter(
+						id, MESSAGE_SIZE, queueSize,
+						new QoS.WriterQOS[] { QoS.QOS_ALWAYS_SEND, new QoS.QOS_SEND_SEQNO_FILTER(filter) }, null);
+				RTPSReader reader = readerParticipant.createReader(
+						id, writer.getGUID(), 
+						MESSAGE_SIZE, queueSize,
+						QoS.RELIABLE_ORDERED_QOS, null))
+			{
+					
+			writer.start();
+
+			ByteBuffer writeBuffer = ByteBuffer.allocate(MESSAGE_SIZE);
+			
+			for (int i = 0; i < queueSize; i++)
+			{
+				writeBuffer.clear();
+				writeBuffer.putLong(i);
+				writeBuffer.flip();
+				
+				long seqNo = writer.send(writeBuffer);
+				assertTrue(seqNo != 0);
+			}
+
+			for (int i = 0; i < queueSize; i++)
+			{
+				try (SharedBuffer sharedBuffer = reader.waitForNewData(TIMEOUT_MS))
+				{
+					assertNotNull(sharedBuffer);
+					assertEquals(i, sharedBuffer.getBuffer().getLong());
+				}
+			}
+		}
+	}
 
 	private static class SeqNoFilterImpl implements SeqNoFilter
 	{
@@ -209,28 +254,35 @@ public class RTPSParticipantTest extends TestCase {
 		
 	}
 	
-	public void _testLossyReliableOrderedCommunication() throws InterruptedException {
-		final int queueSize = 10;
+	public void testLossyReliableOrderedCommunication() throws InterruptedException {
+		
+		try (RTPSParticipant readerParticipant = new RTPSParticipant(null, 0, false);
+			 RTPSParticipant writerParticipant = new RTPSParticipant(null, 0, true)) {
+			
+			readerParticipant.start();
+			writerParticipant.start();
+	
+			final int queueSize = 11;
 
-		// test all combinations of missing packets
-
-		List<Long> seqNumbers = new ArrayList<Long>(queueSize);
-		// do not miss first seqNo == 2 - to have consistent subscription
-		for (long i = 0; i < queueSize-1; i++)
-			seqNumbers.add(i + 3);
-
-		int n = seqNumbers.size();
-		long combinations = 1 << n;
-		for (int setNumber = 0; setNumber < combinations; setNumber++)
-		{
-			Set<Long> set = new HashSet<Long>(queueSize);
-			for (int digit = 0; digit < n; digit++)
+			// test all combinations of missing packets
+	
+			List<Long> seqNumbers = new ArrayList<Long>(queueSize);
+			// do not miss first seqNo == 2 - to have consistent subscription
+			for (long i = 0; i < queueSize-1; i++)
+				seqNumbers.add(i + 3);
+	
+			int n = seqNumbers.size();
+			long combinations = 1 << n;
+			for (int setNumber = 0; setNumber < combinations; setNumber++)
 			{
-				if ((setNumber & (1 << digit)) > 0)
-					set.add(seqNumbers.get(digit));
+				Set<Long> set = new HashSet<Long>(queueSize);
+				for (int digit = 0; digit < n; digit++)
+				{
+					if ((setNumber & (1 << digit)) > 0)
+						set.add(seqNumbers.get(digit));
+				}
+				lossyReliableOrderedCommunication(setNumber, readerParticipant, writerParticipant, new SeqNoFilterImpl(set), queueSize);
 			}
-			System.out.println("lossy combination: " + set);
-			lossyReliableOrderedCommunication(new SeqNoFilterImpl(set), queueSize);
 		}
 	}
 

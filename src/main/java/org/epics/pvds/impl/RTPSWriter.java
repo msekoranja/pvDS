@@ -316,7 +316,7 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 		{
 //				lastAckNackCount = count;
 			
-			//System.out.println("ACKNACK: " + readerSNState + " | " + count);
+			//System.out.println("ACKNACK: " + readerSNState + " | " /*+ count*/);
 
 			nack(readerSNState, (InetSocketAddress)receiver.receivedFrom);
 
