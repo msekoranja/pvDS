@@ -1,5 +1,6 @@
 package org.epics.pvds.impl;
 
+
 public final class QoS {
 
 	public interface QOS {};
@@ -12,7 +13,7 @@ public final class QoS {
 	public static final ReaderQOS QOS_ORDERED = new ReaderQOS() {};
 
 	public static class QOS_LIMIT_READERS implements WriterQOS {
-		public int limit;
+		public final int limit;
 		public QOS_LIMIT_READERS(int limit)
 		{
 			if (limit <= 0)
@@ -23,6 +24,23 @@ public final class QoS {
 
 	// always send messages, even if there is no readers
 	public static final WriterQOS QOS_ALWAYS_SEND = new WriterQOS() {};
+
+	// used for tests to control packet loss
+	public static class QOS_SEND_SEQNO_FILTER implements WriterQOS {
+		
+		public static interface SeqNoFilter {
+			boolean checkSeqNo(long seqNo);
+		}
+		
+		public final SeqNoFilter filter;
+		
+		public QOS_SEND_SEQNO_FILTER(SeqNoFilter filter)
+		{
+			if (filter == null)
+				throw new IllegalArgumentException("filter == null");
+			this.filter = filter;
+		}
+	};
 
 	public static final WriterQOS[] DEFAULT_WRITER_QOS = null;
 	public static final ReaderQOS[] DEFAULT_READER_QOS = null;

@@ -23,6 +23,7 @@ import org.epics.pvds.Protocol.EntityId;
 import org.epics.pvds.Protocol.GUID;
 import org.epics.pvds.Protocol.SequenceNumberSet;
 import org.epics.pvds.Protocol.SubmessageHeader;
+import org.epics.pvds.impl.QoS.QOS_SEND_SEQNO_FILTER.SeqNoFilter;
 import org.epics.pvds.impl.RTPSParticipant.PeriodicTimerCallback;
 import org.epics.pvds.util.BitSet;
 import org.epics.pvds.util.LongDynaHeap;
@@ -154,7 +155,8 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
     private final static int LIMIT_READERS_DEFAULT = Integer.MAX_VALUE;
     private final int limitReaders;
     private final boolean alwaysSend;
-
+    private final SeqNoFilter sendSeqNoFilter;
+    
     /**
      * Constructor.
      * @param writerId writer ID.
@@ -187,6 +189,7 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 		
 	    int limitReaders = LIMIT_READERS_DEFAULT;
 	    boolean alwaysSend = false;
+	    SeqNoFilter sendSeqNoFilter = null;
 		if (qos != null)
 		{
 			for (QoS.WriterQOS wq: qos)
@@ -199,6 +202,10 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 				{
 					alwaysSend = true;
 				}
+				else if (wq instanceof QoS.QOS_SEND_SEQNO_FILTER)
+				{
+					sendSeqNoFilter = ((QoS.QOS_SEND_SEQNO_FILTER)wq).filter;
+				}
 				else 
 				{
 					// TODO log
@@ -208,6 +215,7 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 		}
 		this.limitReaders = limitReaders;
 		this.alwaysSend = alwaysSend;
+		this.sendSeqNoFilter = sendSeqNoFilter;
 		
 		// sender setup
 	    try {
@@ -810,11 +818,15 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 			    	lastSentSeqNo = be.sequenceNo;
 			    	//System.out.println("tx: " + be.sequenceNo);
 			    }
-			    be.buffer.flip();
 
-			    // NOTE: yes, send can send 0 or be.buffer.remaining() 
-			    while (be.buffer.hasRemaining())
-			    	unicastChannel.send(be.buffer, be.sendAddress);
+			    if (sendSeqNoFilter == null || sendSeqNoFilter.checkSeqNo(be.sequenceNo))
+			    {
+				    be.buffer.flip();
+
+				    // NOTE: yes, send can send 0 or be.buffer.remaining() 
+				    while (be.buffer.hasRemaining())
+				    	unicastChannel.send(be.buffer, be.sendAddress);
+			    }
 			}
 			finally
 			{
@@ -856,11 +868,14 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 				    {
 					    lastSendTime = System.nanoTime();	// TODO adjust nanoTime() overhead?
 
-					    be.buffer.flip();
-					    // send on unicast address directly if only one reader is interested in it
-					    while (be.buffer.remaining() > 0)
-					    	unicastChannel.send(be.buffer, (resendRequestCount == 1) ? be.resendUnicastAddress : be.sendAddress);
-	
+					    if (sendSeqNoFilter == null || sendSeqNoFilter.checkSeqNo(be.sequenceNo))
+					    {
+						    be.buffer.flip();
+						    // send on unicast address directly if only one reader is interested in it
+						    while (be.buffer.remaining() > 0)
+						    	unicastChannel.send(be.buffer, (resendRequestCount == 1) ? be.resendUnicastAddress : be.sendAddress);
+					    }
+					    
 					    messagesSinceLastHeartbeat++;
 				    }
 		    	}
