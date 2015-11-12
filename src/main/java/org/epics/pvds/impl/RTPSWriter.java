@@ -5,13 +5,13 @@ import java.net.InetSocketAddress;
 import java.net.StandardSocketOptions;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
+import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -47,15 +47,6 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
     //private int lastAckNackCount = -1;
     
     private final SequenceNumberSet readerSNState = new SequenceNumberSet();
-    
-    // TODO to be configurable
-
-	// NOTE: Giga means 10^9 (not 1024^3)
-    private final double udpTxRateGbitPerSec = Double.valueOf(System.getProperty("PVDS_MAX_THROUGHPUT", "0.90")); // TODO make configurable, figure out better default!!!
-    private final int MESSAGE_ALIGN = 32;
-    private final int MAX_PACKET_SIZE_BYTES_CONF = Math.max(64, Integer.valueOf(System.getProperty("PVDS_MAX_UDP_PACKET_SIZE", "8000")));
-    private final int MAX_PACKET_SIZE_BYTES = ((MAX_PACKET_SIZE_BYTES_CONF + MESSAGE_ALIGN - 1) / MESSAGE_ALIGN) * MESSAGE_ALIGN;
-    private long delay_ns = (long)(MAX_PACKET_SIZE_BYTES * 8 / udpTxRateGbitPerSec);
 
     private final int MIN_SEND_BUFFER_PACKETS = 2;
     
@@ -70,8 +61,7 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
     	InetSocketAddress sendAddress;
     	
     	// 0 - none, 1 - unicast, > 1 - multicast
-    	// TODO optimize sync
-    	volatile int resendRequests;
+    	int resendRequests;
     	InetSocketAddress resendUnicastAddress;
     	
     	final Lock lock = new ReentrantLock();
@@ -134,23 +124,25 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
     			unlock();
     		}
     	}
-    	
-    	// TODO optimize this
+
+    	/*
+    	// optimize this
     	public void setSequenceNo(long seqNo)
     	{
     		lock();
     		sequenceNo = seqNo;
     		unlock();
     	}
-
+    	 */
     }
     
 
     final ArrayBlockingQueue<BufferEntry> freeQueue;
     final ArrayBlockingQueue<BufferEntry> sendQueue;
-    
+//    final ArrayBlockingQueue<BufferEntry> resendQueue;
+    final ArrayDeque<BufferEntry> resendQueue;
+       
     final ConcurrentHashMap<Long, BufferEntry> recoverMap;
-
     final InetSocketAddress multicastAddress;
 
     ///
@@ -237,13 +229,14 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 	    int packetSize = maxMessageSize + DATA_HEADER_LEN + DATA_SUBMESSAGE_NO_QOS_PREFIX_LEN;
 	    int bufferSlots = messageQueueSize;
 
-	    if (packetSize > MAX_PACKET_SIZE_BYTES)
+	    final int maxPacketSizeBytes = participant.getMaxPacketSize();
+	    if (packetSize > maxPacketSizeBytes)
 	    {
-	    	// NOTE: min MAX_PACKET_SIZE_BYTES > (DATA_HEADER_LEN + DATA_FRAG_SUBMESSAGE_NO_QOS_PREFIX_LEN), i.e. 64 > 56
-	    	int pureMessageBytes = MAX_PACKET_SIZE_BYTES - DATA_HEADER_LEN - DATA_FRAG_SUBMESSAGE_NO_QOS_PREFIX_LEN;	
+	    	// NOTE: min maxPacketSizeBytes > (DATA_HEADER_LEN + DATA_FRAG_SUBMESSAGE_NO_QOS_PREFIX_LEN), i.e. 64 > 56
+	    	int pureMessageBytes = maxPacketSizeBytes - DATA_HEADER_LEN - DATA_FRAG_SUBMESSAGE_NO_QOS_PREFIX_LEN;	
 		    int slotsPerMessage = (maxMessageSize + pureMessageBytes - 1) / pureMessageBytes;
 		    bufferSlots *= slotsPerMessage;
-		    packetSize = MAX_PACKET_SIZE_BYTES;
+		    packetSize = maxPacketSizeBytes;
 	    }
 	    	
 	    // make sure we have at least MIN_SEND_BUFFER_PACKETS slots
@@ -251,6 +244,8 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 	    
 	    freeQueue = new ArrayBlockingQueue<BufferEntry>(bufferSlots);
 	    sendQueue = new ArrayBlockingQueue<BufferEntry>(bufferSlots);
+//	    resendQueue = new ArrayBlockingQueue<BufferEntry>(bufferSlots);
+	    resendQueue = new ArrayDeque<BufferEntry>(bufferSlots);
 
 	    final ByteBuffer buffer = ByteBuffer.allocate(bufferSlots*packetSize);
 	
@@ -280,8 +275,7 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 
 	    if (logger.isLoggable(Level.CONFIG))
 	    {
-		    logger.config("Transmitter: buffer size = " + bufferSlots + " packets of " + packetSize + 
-		    				   " bytes, rate limit: " + udpTxRateGbitPerSec + "Gbit/sec (period: " + delay_ns + " ns)");
+		    logger.config("Transmitter: buffer size = " + bufferSlots + " packets of " + packetSize + " bytes");
 	    }
 	}
     
@@ -739,169 +733,138 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 	    while (heartbeatBuffer.hasRemaining())
 	    	unicastChannel.send(heartbeatBuffer, sendAddress);
 
-	    return true;
+		messagesSinceLastHeartbeat = 0;
+
+		return true;
     }
     
     // TODO make configurable
     private static long MIN_HEARTBEAT_TIMEOUT_MS = 1;
     private static long MAX_HEARTBEAT_TIMEOUT_MS = 5*1024;		// TODO increase this when subscription is implemented, ideally there should be no HEARTBEAT is there is no clients
-    private static long INITIAL_HEARTBEAT_TIMEOUT_MS = 16;
+    private static long INITIAL_HEARTBEAT_TIMEOUT_MS = 128;
     private static long HEARTBEAT_PERIOD_MESSAGES = 100;		// send every 100 messages (if not sent otherwise)
     
-    // TODO implement these
     private AtomicInteger readerCount = new AtomicInteger(0);
     private AtomicReference<InetSocketAddress> singleReaderSocketAddress =
     		new AtomicReference<InetSocketAddress>();
 
-    // TODO heartbeat, acknack are not excluded (do not sent lastSendTime)
-    private long lastSendTime = 0;
-    
-    private final AtomicBoolean stopped = new AtomicBoolean();
-    
-    public void sendProcess() throws IOException, InterruptedException
+	private int messagesSinceLastHeartbeat = 0;
+	private long heartbeatTimeout = INITIAL_HEARTBEAT_TIMEOUT_MS; 
+	private boolean resendState = false;
+	
+	final BufferEntry poll() throws IOException, InterruptedException
     {
-    	int messagesSinceLastHeartbeat = 0;
-    	long heartbeatTimeout = INITIAL_HEARTBEAT_TIMEOUT_MS; 
-    	
-	    // sender
-	    while (true)
-	    {
+		if (resendState)
+		{
+		    BufferEntry be = resendQueue.poll();
+		    if (be != null)
+		    	return be;
+		    
+		    resendState = false;
+		}
+		
+		{
 		    BufferEntry be = sendQueue.poll();
-		    if (be == null)
+		    if (be != null)
+		    	return be;
+		}
+		
+    	if (resendRequestsPending.get() > 0)
+    	{
+        	for (BufferEntry be : freeQueue)
+        	{
+		    	be.lock();
+
+			    if (be.sequenceNo != 0 && be.resendRequests > 0)
+			    	resendQueue.add(be);
+			    	
+		    	be.unlock();
+        	}
+        	
+    		if (resendQueue.size() > 0)
+    		{
+    			resendState = true;
+    			return resendQueue.poll();
+    		}
+    	}
+    	
+    	long now = System.currentTimeMillis();
+    	if (now >= heartbeatTime)
+    	{
+    		sendHeartbeatMessage();
+    		
+			if (heartbeatTimeout == 0)
+				heartbeatTimeout = MIN_HEARTBEAT_TIMEOUT_MS;
+			else
+				heartbeatTimeout = Math.min(heartbeatTimeout << 1, MAX_HEARTBEAT_TIMEOUT_MS);
+			heartbeatTime = now + heartbeatTimeout;
+		}
+		
+		return null;
+    }
+
+	private long heartbeatTime = System.currentTimeMillis() + INITIAL_HEARTBEAT_TIMEOUT_MS;
+	
+	final long getHeartbeatTime()
+	{
+		return heartbeatTime;
+	}
+	
+	final boolean send(BufferEntry be) throws IOException, InterruptedException
+	{
+		// reset
+    	heartbeatTimeout = 0;
+
+    	be.lock();
+		try
+		{
+	    	InetSocketAddress sendAddress;
+	    	
+		    if (!resendState)
 		    {
-		    	// stop when all data is sent
-		    	if (stopped.get())
-		    		break;
-		    	
-			    //System.out.println("resendRequestsPending: " + resendRequestsPending.get());
-		    	if (resendRequestsPending.get() > 0)
-		    	{
-		    		resendProcess();
-			    	heartbeatTimeout = MIN_HEARTBEAT_TIMEOUT_MS;
-		    		continue;
-		    	}
-		    	
-		    	be = sendQueue.poll(heartbeatTimeout, TimeUnit.MILLISECONDS);
-		    	if (be == null)
-		    	{
-	    			if (sendHeartbeatMessage())
-	    				messagesSinceLastHeartbeat = 0;
-	    			
-		    		heartbeatTimeout = Math.min(heartbeatTimeout << 1, MAX_HEARTBEAT_TIMEOUT_MS);
-		    		continue;
-		    	}
+		    	recoverMap.put(be.sequenceNo, be);
+		    	sendAddress = be.sendAddress;
+		    	lastSentSeqNo = be.sequenceNo;
+		    	//System.out.println("tx: " + be.sequenceNo);
+		    }
+		    else
+		    {
+				// recheck if not taken by prepareBuffer() method
+		    	int resendRequestCount = be.resendRequests; be.resendRequests = 0;
+		    	resendRequestsPending.getAndAdd(-resendRequestCount);
+		    	if (resendRequestCount == 0)
+		    		return false;
+			    // send on unicast address directly if only one reader is interested in it
+		    	sendAddress = (resendRequestCount == 1) ? be.resendUnicastAddress : be.sendAddress;
+		    	//System.out.println("resend of " + be.sequenceNo);
 		    }
 		    
-	    	heartbeatTimeout = MIN_HEARTBEAT_TIMEOUT_MS;
-
-	    	// TODO we need at least 1us precision?
-
-	    	// while-loop only version
-		    // does not work well on single-core CPUs
-/*
-			    long endTime = lastSendTime + delay_ns;
-				long sleep_ns;
-			    while (true)
-			    {
-					lastSendTime = System.nanoTime();
-			    	sleep_ns = endTime - lastSendTime;
-			    	if (sleep_ns < 1000)
-			    		break;
-			    	else if (sleep_ns > 100000)	// NOE: on linux this is ~2000
-				    	Thread.sleep(0);
-			    	//	Thread.yield();
-			    }*/
-			long endTime = lastSendTime + delay_ns;
-			while (endTime - System.nanoTime() > 0);
-			lastSendTime = System.nanoTime();	// TODO adjust nanoTime() overhead?
-		    //System.out.println(sleep_ns);
-
-			be.lock();
-			try
-			{
-			    if (be.sequenceNo != 0)
-			    {
-			    	recoverMap.put(be.sequenceNo, be);
-			    	lastSentSeqNo = be.sequenceNo;
-			    	//System.out.println("tx: " + be.sequenceNo);
-			    }
-
-			    if (sendSeqNoFilter == null || sendSeqNoFilter.checkSeqNo(be.sequenceNo))
-			    {
-				    be.buffer.flip();
-
-				    // NOTE: yes, send can send 0 or be.buffer.remaining() 
-				    while (be.buffer.hasRemaining())
-				    	unicastChannel.send(be.buffer, be.sendAddress);
-			    }
-			}
-			finally
-			{
-				be.unlock();
-			}
-		    freeQueue.put(be);
-
-	    	messagesSinceLastHeartbeat++;
-	    	if (messagesSinceLastHeartbeat > HEARTBEAT_PERIOD_MESSAGES)
-	    	{
-	    		// TODO try to piggyback
-    			if (sendHeartbeatMessage())
-    				messagesSinceLastHeartbeat = 0;
-	    	}
-
-	    }
-    }
-    
-    private void resendProcess() throws IOException, InterruptedException
-    {
-    	int messagesSinceLastHeartbeat = 0;
-
-    	for (BufferEntry be : freeQueue)
-    	{
-		    if (be.resendRequests > 0)
+		    if (sendSeqNoFilter == null || sendSeqNoFilter.checkSeqNo(be.sequenceNo))
 		    {
-		    	be.lock();
-		    	try
-		    	{
-			    	// TODO we need at least 1us precision?
-			    	// we do not want to sleep while lock is held, do it here
-				    long endTime = lastSendTime + delay_ns;
-					while (endTime - System.nanoTime() > 0);
+			    be.buffer.flip();
 
-					// recheck if not taken by prepareBuffer() method
-				    int resendRequestCount = be.resendRequests; be.resendRequests = 0;
-				    resendRequestsPending.getAndAdd(-resendRequestCount);
-				    if (be.sequenceNo != 0 && resendRequestCount > 0)
-				    {
-					    lastSendTime = System.nanoTime();	// TODO adjust nanoTime() overhead?
+			    // NOTE: yes, send can send 0 or be.buffer.remaining() 
+			    while (be.buffer.hasRemaining())
+			    	unicastChannel.send(be.buffer, sendAddress);
+		    }
+		}
+		finally
+		{
+			be.unlock();
+		}
+		
+		if (!resendState)
+			freeQueue.put(be);
 
-					    if (sendSeqNoFilter == null || sendSeqNoFilter.checkSeqNo(be.sequenceNo))
-					    {
-						    be.buffer.flip();
-						    // send on unicast address directly if only one reader is interested in it
-						    while (be.buffer.remaining() > 0)
-						    	unicastChannel.send(be.buffer, (resendRequestCount == 1) ? be.resendUnicastAddress : be.sendAddress);
-					    }
-					    
-					    messagesSinceLastHeartbeat++;
-				    }
-		    	}
-		    	finally
-		    	{
-		    		be.unlock();
-	    		}
-    		}
-
-    		// do not hold lock while sending heartbeat
-    		// (this is why this block is moved outside sync block above; was just after messagesSinceLastHeartbeat++)
-    		if (messagesSinceLastHeartbeat > HEARTBEAT_PERIOD_MESSAGES)
-	    	{
-	    		// TODO try to piggyback
-    			if (sendHeartbeatMessage())
-    				messagesSinceLastHeartbeat = 0;
-	    	}
-    	}
-    }
+		messagesSinceLastHeartbeat++;
+		if (messagesSinceLastHeartbeat > HEARTBEAT_PERIOD_MESSAGES)
+		{
+			// TODO try to piggyback
+			sendHeartbeatMessage();
+		}
+		
+		return true;
+	}
     
     // NOTE: this differs from RTPS spec (here writerSN changes also for every fragment)
     // do not put multiple Data/DataFrag message into same message (they will report different ids)
@@ -1032,30 +995,10 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
     	
     	// enqueue
 	    sendQueue.put(be);
+	    
+	    // TODO reschedule in now time
     }
     
-    private final AtomicBoolean started = new AtomicBoolean();
-    public void start() {
-		if (started.getAndSet(true))
-			return;
-
-    	new Thread(() -> {
-    		try
-    		{
-				sendProcess();
-    		}
-    		catch (Throwable th) 
-    		{
-    			th.printStackTrace();
-    		}
-	    }, "writer-thread").start();
-    }
-    
-    public void stop()
-    {
-		stopped.set(true);
-    }
-
     public GUID getGUID() {
     	return writerGUID;
     }
@@ -1064,7 +1007,12 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 	@Override
 	public void close()
 	{
-		stop();
 		participant.destroyWriter(writerId);
 	}
+	
+	
+	
+	
+	
+	
 }

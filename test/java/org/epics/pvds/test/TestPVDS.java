@@ -72,7 +72,6 @@ public class TestPVDS {
 	    final String multicastNIF = (args.length > 0) ? args[0] : null;
 	    
 	    final RTPSParticipant processor = new RTPSParticipant(multicastNIF, domainId, !isRx);
-	    processor.start();
 	    
 	    final long TIMEOUT_MS = 3000;
 	    
@@ -83,7 +82,6 @@ public class TestPVDS {
 		    		new QoS.WriterQOS[] { new QoS.QOS_LIMIT_READERS(3) }, new RTPSWriterListenerImpl());
 		    writerGUID = writer.getGUID();
 		    System.out.println("Writer GUID: " + writerGUID);
-		    writer.start();
 		    
 		    new Thread(() -> {
 		    	try {

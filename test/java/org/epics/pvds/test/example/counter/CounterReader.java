@@ -11,7 +11,6 @@ public class CounterReader {
 	public static void main(String[] args) throws Throwable {
 		
 		RTPSParticipant participant = new RTPSParticipant(Constants.LOCAL_MCAST_NIF, Constants.DOMAIN_ID, false);
-		participant.start();
 		
 		GUID writerGUID = Constants.WRITER_GUID; //GUID.parse(args[0]);
 		RTPSReader reader = participant.createReader(

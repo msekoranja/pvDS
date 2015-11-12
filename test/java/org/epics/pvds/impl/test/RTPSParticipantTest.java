@@ -92,8 +92,6 @@ public class RTPSParticipantTest extends TestCase {
 
 	public void testClose() {
 		try (RTPSParticipant p1 = new RTPSParticipant(null, 0, false)) {
-			p1.start();
-			
 			p1.createWriter(0, 16, 1);
 			p1.createWriter(1, 16, 1);
 			p1.createWriter(2, 16, 1);
@@ -109,9 +107,6 @@ public class RTPSParticipantTest extends TestCase {
 		try (RTPSParticipant readerParticipant = new RTPSParticipant(null, 0, false);
 			 RTPSParticipant writerParticipant = new RTPSParticipant(null, 0, true)) {
 			
-			readerParticipant.start();
-			writerParticipant.start();
-			
 			final int MESSAGE_SIZE = Long.BYTES;
 			final int QUEUE_SIZE = 3;
 			final int TIMEOUT_MS = 1000;
@@ -119,7 +114,6 @@ public class RTPSParticipantTest extends TestCase {
 			RTPSWriter writer = writerParticipant.createWriter(
 					0, MESSAGE_SIZE, QUEUE_SIZE,
 					new QoS.WriterQOS[] { QoS.QOS_ALWAYS_SEND }, null);
-			writer.start();
 			
 			RTPSReader reader = readerParticipant.createReader(
 					0, writer.getGUID(), 
@@ -164,7 +158,6 @@ public class RTPSParticipantTest extends TestCase {
 			RTPSWriter writer = writerParticipant.createWriter(
 					0, MESSAGE_SIZE, queueSize,
 					new QoS.WriterQOS[] { QoS.QOS_ALWAYS_SEND, new QoS.QOS_SEND_SEQNO_FILTER(filter) }, null);
-			writer.start();
 			
 			RTPSReader reader = readerParticipant.createReader(
 					0, writer.getGUID(), 
@@ -214,8 +207,6 @@ public class RTPSParticipantTest extends TestCase {
 						QoS.RELIABLE_ORDERED_QOS, null))
 			{
 					
-			writer.start();
-
 			ByteBuffer writeBuffer = ByteBuffer.allocate(MESSAGE_SIZE);
 			
 			for (int i = 0; i < queueSize; i++)
@@ -247,8 +238,6 @@ public class RTPSParticipantTest extends TestCase {
 			final int MESSAGE_SIZE = 3*Long.BYTES;
 			final int TIMEOUT_MS = 1000;
 
-			System.getProperties().put("PVDS_MAX_UDP_PACKET_SIZE", "64");
-			
 			try (
 				RTPSWriter writer = writerParticipant.createWriter(
 						id, MESSAGE_SIZE, queueSize,
@@ -259,8 +248,6 @@ public class RTPSParticipantTest extends TestCase {
 						QoS.RELIABLE_ORDERED_QOS, null))
 			{
 					
-			writer.start();
-
 			ByteBuffer writeBuffer = ByteBuffer.allocate(MESSAGE_SIZE);
 			
 			for (int i = 0; i < queueSize; i++)
@@ -288,7 +275,6 @@ public class RTPSParticipantTest extends TestCase {
 			}
 		}
 		
-		System.getProperties().remove("PVDS_MAX_UDP_PACKET_SIZE");
 	}
 
 	private static class SeqNoFilterImpl implements SeqNoFilter
@@ -311,9 +297,6 @@ public class RTPSParticipantTest extends TestCase {
 		try (RTPSParticipant readerParticipant = new RTPSParticipant(null, 0, false);
 			 RTPSParticipant writerParticipant = new RTPSParticipant(null, 0, true)) {
 			
-			readerParticipant.start();
-			writerParticipant.start();
-	
 			final int queueSize = 11;
 
 			// test all combinations of missing packets
@@ -340,12 +323,11 @@ public class RTPSParticipantTest extends TestCase {
 
 	public void testFragmentedLossyReliableOrderedCommunication() throws InterruptedException {
 
+		System.getProperties().put("PVDS_MAX_UDP_PACKET_SIZE", "64");
+		
 		try (RTPSParticipant readerParticipant = new RTPSParticipant(null, 0, false);
 			 RTPSParticipant writerParticipant = new RTPSParticipant(null, 0, true)) {
 			
-			readerParticipant.start();
-			writerParticipant.start();
-	
 			final int queueSize = 5;
 
 			// test all combinations of missing packets
@@ -368,5 +350,10 @@ public class RTPSParticipantTest extends TestCase {
 				lossyFragmentedReliableOrderedCommunication(setNumber, readerParticipant, writerParticipant, new SeqNoFilterImpl(set), queueSize);
 			}
 		}
+		finally 
+		{
+			System.getProperties().remove("PVDS_MAX_UDP_PACKET_SIZE");
+		}
+		
 	}
 }
