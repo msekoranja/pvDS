@@ -120,6 +120,8 @@ public class RTPSParticipant extends RTPSEndPoint implements AutoCloseable
     	writers.put(guid, writer);
     	writersList.add(writer);
     	
+    	newDataAvailableLatch.countDown();
+    	
     	return writer;
     }
 
