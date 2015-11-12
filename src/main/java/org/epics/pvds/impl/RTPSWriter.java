@@ -789,7 +789,7 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
     	}
     	
     	long now = System.currentTimeMillis();
-    	if (now >= heartbeatTime)
+    	if (heartbeatTimeout == 0 || now >= heartbeatTime)
     	{
     		sendHeartbeatMessage();
     		
@@ -996,7 +996,9 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
     	// enqueue
 	    sendQueue.put(be);
 	    
-	    // TODO reschedule in now time
+	    // notify
+	    // TODO only if needed, e.g. senqueue is not already full
+	    participant.notifyDataAvailbale();
     }
     
     public GUID getGUID() {

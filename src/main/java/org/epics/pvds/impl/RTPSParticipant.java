@@ -434,6 +434,8 @@ public class RTPSParticipant extends RTPSEndPoint implements AutoCloseable
     private void stop()
     {
 		stopped.set(true);
+		
+    	newDataAvailableLatch.countDown();
     }
     
     // suppresses AutoCloseable.close() exception
