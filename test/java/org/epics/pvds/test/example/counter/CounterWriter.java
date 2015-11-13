@@ -27,7 +27,7 @@ public class CounterWriter {
 			//writer.send(buffer);
 			
 			// RELIABLE writer
-			if (!writer.send(buffer, Constants.ACK_TIMEOUT_MS))
+			if (!writer.write(buffer, Constants.ACK_TIMEOUT_MS))
 				System.err.println(counterData.count + " not ACKed by all reliable readers");
 			
 			// 10Hz

@@ -3,6 +3,7 @@ package org.epics.pvds.test;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
+import java.util.concurrent.TimeUnit;
 
 import org.epics.pvds.Protocol.GUID;
 import org.epics.pvds.impl.GUIDHolder;
@@ -91,7 +92,7 @@ public class TestPVDS {
 				    	data.putInt(0, ++packageCounter);
 				    	data.flip();
 				    	
-				    	long seqNo = writer.send(data); 
+				    	long seqNo = writer.write(data); 
 				    	// packet not sent (no readers)
 				    	if (seqNo == 0) 
 				    	{
@@ -111,7 +112,7 @@ public class TestPVDS {
 				    	}
 				    	else
 				    	{
-				    		writer.waitUntilSent();
+				    		writer.waitUntilFlushed();
 				    		//Thread.sleep(100);
 				    	}
 				    }
@@ -145,7 +146,7 @@ public class TestPVDS {
 		    {
 	    		long t1 = System.currentTimeMillis();
 	
-		    	try (SharedBuffer sb = reader.waitForNewData(TIMEOUT_MS))
+		    	try (SharedBuffer sb = reader.read(TIMEOUT_MS, TimeUnit.MILLISECONDS))
 		    	{
 		    		if (sb == null)
 		    		{

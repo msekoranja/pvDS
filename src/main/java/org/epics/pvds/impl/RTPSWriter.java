@@ -507,9 +507,9 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
     	}
     }
 
-    public boolean send(ByteBuffer data, long timeout) throws InterruptedException
+    public boolean write(ByteBuffer data, long timeout) throws InterruptedException
     {
-    	long seqNo = send(data);
+    	long seqNo = write(data);
     	return waitUntilAcked(seqNo, timeout);
     }
     
@@ -871,7 +871,7 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 	private final AtomicLong writerSequenceNumber = new AtomicLong(0);
 	
 	// not thread-safe
-    public long send(ByteBuffer data) throws InterruptedException
+    public long write(ByteBuffer data) throws InterruptedException
     {
     	int dataSize = data.remaining();
     	if (dataSize == 0)
@@ -946,7 +946,7 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 	    return writerSequenceNumber.get();
     }
     
-    public void waitUntilSent() {
+    public void waitUntilFlushed() {
     	while (!sendQueue.isEmpty())
     		Thread.yield();
     }

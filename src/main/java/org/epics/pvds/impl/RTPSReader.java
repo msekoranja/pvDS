@@ -474,7 +474,9 @@ public class RTPSReader implements AutoCloseable
     private long lastHeartbeatLastSN = 0;
     
     //private static final int ACKNACK_MISSING_COUNT_THRESHOLD = 64;
-    //private long lastAckNackTimestamp = Long.MIN_VALUE;
+    private long lastAckNackTimestamp = 0;
+    // TODO
+    private static final int ACKNACK_UNRELIABLE_RATE_LIMIT_MS = 1000;
     
     // TODO initialize (message header only once), TODO calculate max size (72?)
     private final ByteBuffer ackNackBuffer = ByteBuffer.allocate(128);
@@ -482,8 +484,11 @@ public class RTPSReader implements AutoCloseable
     {
     	if (!reliable)
     	{
+    		// TODO consider better limiting (too much limiting might affect writes liveness checks)
+    		if ((timestamp - lastAckNackTimestamp) < ACKNACK_UNRELIABLE_RATE_LIMIT_MS)
+    			return false;
+    		
     		// ack all seqNo
-    		// TODO possible opt (set this only once)
 	    	readerSNState.reset(Long.MAX_VALUE);
     	}
     	else if (missingSequenceNumbers.isEmpty())
@@ -525,7 +530,7 @@ public class RTPSReader implements AutoCloseable
 			return false;
 		}
 	    
-    	//lastAckNackTimestamp = timestamp;
+    	lastAckNackTimestamp = timestamp;
     	
     	return true;
     }
@@ -1049,6 +1054,7 @@ public class RTPSReader implements AutoCloseable
     private void newDataNotify(SharedBuffer buffer)
     {
     	// TODO do we really need to send after every completed?
+    	// if writer is reliable yes
     	sendAckNackResponse();
     	
     	if (!newDataQueue.offer(buffer))
@@ -1060,10 +1066,22 @@ public class RTPSReader implements AutoCloseable
     	}
     }
     
-    public SharedBuffer waitForNewData(long timeout) throws InterruptedException
+    public SharedBuffer read()
     {
-    	return newDataQueue.poll(timeout, TimeUnit.MILLISECONDS);
+    	return newDataQueue.poll();
     }
+    
+    public SharedBuffer read(long timeout, TimeUnit unit) throws InterruptedException
+    {
+    	return newDataQueue.poll(timeout, unit);
+    }
+  
+    public boolean isEmpty() {
+    	return newDataQueue.isEmpty();
+    }
+    
+    // TODO disruptor based monitor API?
+    // TODO writer presence status notification
     
     private void missedSequencesNotify(long start, long end)
 	{

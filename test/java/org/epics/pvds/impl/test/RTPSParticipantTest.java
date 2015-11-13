@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import junit.framework.TestCase;
 
@@ -128,13 +129,13 @@ public class RTPSParticipantTest extends TestCase {
 				writeBuffer.putLong(i);
 				writeBuffer.flip();
 				
-				long seqNo = writer.send(writeBuffer);
+				long seqNo = writer.write(writeBuffer);
 				assertTrue(seqNo != 0);
 			}
 
 			for (int i = 0; i < QUEUE_SIZE; i++)
 			{
-				try (SharedBuffer sharedBuffer = reader.waitForNewData(TIMEOUT_MS))
+				try (SharedBuffer sharedBuffer = reader.read(TIMEOUT_MS, TimeUnit.MILLISECONDS))
 				{
 					assertNotNull(sharedBuffer);
 					assertEquals(i, sharedBuffer.getBuffer().getLong());
@@ -215,13 +216,13 @@ public class RTPSParticipantTest extends TestCase {
 				writeBuffer.putLong(i);
 				writeBuffer.flip();
 				
-				long seqNo = writer.send(writeBuffer);
+				long seqNo = writer.write(writeBuffer);
 				assertTrue(seqNo != 0);
 			}
 
 			for (int i = 0; i < queueSize; i++)
 			{
-				try (SharedBuffer sharedBuffer = reader.waitForNewData(TIMEOUT_MS))
+				try (SharedBuffer sharedBuffer = reader.read(TIMEOUT_MS, TimeUnit.MILLISECONDS))
 				{
 					assertNotNull(sharedBuffer);
 					assertEquals(i, sharedBuffer.getBuffer().getLong());
@@ -258,13 +259,13 @@ public class RTPSParticipantTest extends TestCase {
 				writeBuffer.putLong(i);
 				writeBuffer.flip();
 				
-				long seqNo = writer.send(writeBuffer);
+				long seqNo = writer.write(writeBuffer);
 				assertTrue(seqNo != 0);
 			}
 
 			for (int i = 0; i < queueSize; i++)
 			{
-				try (SharedBuffer sharedBuffer = reader.waitForNewData(TIMEOUT_MS*1000))
+				try (SharedBuffer sharedBuffer = reader.read(TIMEOUT_MS, TimeUnit.MILLISECONDS))
 				{
 					assertNotNull(sharedBuffer);
 					final ByteBuffer buf = sharedBuffer.getBuffer();
