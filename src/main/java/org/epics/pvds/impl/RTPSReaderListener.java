@@ -10,4 +10,14 @@ public interface RTPSReaderListener {
 	 * @param end last missed sequence (end of the interval, included).
 	 */
 	void missedSequencesNotify(long start, long end);
+	
+	/**
+	 * Notify about presence of a writer.
+	 */
+	void writerPresent();
+	
+	/**
+	 * Notify about absence of a writer.
+	 */
+	void writerAbsent();
 }

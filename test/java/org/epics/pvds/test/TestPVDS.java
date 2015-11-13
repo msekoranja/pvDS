@@ -3,6 +3,7 @@ package org.epics.pvds.test;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
+import java.util.concurrent.TimeUnit;
 
 import org.epics.pvds.Protocol.GUID;
 import org.epics.pvds.impl.GUIDHolder;
@@ -24,7 +25,16 @@ public class TestPVDS {
 		public void missedSequencesNotify(long start, long end) {
 			System.out.println("missedSequencesNotify: " + start + " -> " + end);						
 		}
-		
+
+		@Override
+		public void writerPresent() {
+			System.out.println("writerPresent");						
+		}
+
+		@Override
+		public void writerAbsent() {
+			System.out.println("writerAbsent");						
+		}
 	}
 	
 	static class RTPSWriterListenerImpl implements RTPSWriterListener {
@@ -72,18 +82,16 @@ public class TestPVDS {
 	    final String multicastNIF = (args.length > 0) ? args[0] : null;
 	    
 	    final RTPSParticipant processor = new RTPSParticipant(multicastNIF, domainId, !isRx);
-	    processor.start();
 	    
 	    final long TIMEOUT_MS = 3000;
 	    
 	    GUID writerGUID = null;
 	    if (isTx)
 	    {
-		    final RTPSWriter writer = processor.createWriter(0x12345678, maxMessageSize, messageQueueSize,
+		    final RTPSWriter writer = processor.createWriter(128, maxMessageSize, messageQueueSize,
 		    		new QoS.WriterQOS[] { new QoS.QOS_LIMIT_READERS(3) }, new RTPSWriterListenerImpl());
 		    writerGUID = writer.getGUID();
 		    System.out.println("Writer GUID: " + writerGUID);
-		    writer.start();
 		    
 		    new Thread(() -> {
 		    	try {
@@ -93,7 +101,7 @@ public class TestPVDS {
 				    	data.putInt(0, ++packageCounter);
 				    	data.flip();
 				    	
-				    	long seqNo = writer.send(data); 
+				    	long seqNo = writer.write(data); 
 				    	// packet not sent (no readers)
 				    	if (seqNo == 0) 
 				    	{
@@ -113,7 +121,7 @@ public class TestPVDS {
 				    	}
 				    	else
 				    	{
-				    		writer.waitUntilSent();
+				    		writer.waitUntilFlushed();
 				    		//Thread.sleep(100);
 				    	}
 				    }
@@ -147,7 +155,7 @@ public class TestPVDS {
 		    {
 	    		long t1 = System.currentTimeMillis();
 	
-		    	try (SharedBuffer sb = reader.waitForNewData(TIMEOUT_MS))
+		    	try (SharedBuffer sb = reader.read(TIMEOUT_MS, TimeUnit.MILLISECONDS))
 		    	{
 		    		if (sb == null)
 		    		{

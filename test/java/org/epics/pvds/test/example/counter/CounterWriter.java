@@ -10,11 +10,9 @@ public class CounterWriter {
 	public static void main(String[] args) throws Throwable {
 		
 		RTPSParticipant participant = new RTPSParticipant(Constants.WRITER_GUID_PREFIX, Constants.LOCAL_MCAST_NIF, Constants.DOMAIN_ID, true);
-		participant.start();
 		
 		RTPSWriter writer = participant.createWriter(Constants.WRITER_ID, CounterData.MESSAGE_SIZE, 1);
 	    System.out.println("Writer GUID: " + writer.getGUID());
-		writer.start();
 		
 		ByteBuffer buffer = ByteBuffer.allocate(CounterData.MESSAGE_SIZE);
 		CounterData counterData = new CounterData();
@@ -29,7 +27,7 @@ public class CounterWriter {
 			//writer.send(buffer);
 			
 			// RELIABLE writer
-			if (!writer.send(buffer, Constants.ACK_TIMEOUT_MS))
+			if (!writer.write(buffer, Constants.ACK_TIMEOUT_MS))
 				System.err.println(counterData.count + " not ACKed by all reliable readers");
 			
 			// 10Hz

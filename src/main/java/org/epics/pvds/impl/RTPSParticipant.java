@@ -1,5 +1,6 @@
 package org.epics.pvds.impl;
 
+import java.io.IOException;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -8,9 +9,13 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.logging.Logger;
 
 import org.epics.pvds.Protocol;
 import org.epics.pvds.Protocol.EntityId;
@@ -19,6 +24,8 @@ import org.epics.pvds.Protocol.GUIDPrefix;
 import org.epics.pvds.Protocol.ProtocolVersion;
 import org.epics.pvds.Protocol.SubmessageHeader;
 import org.epics.pvds.Protocol.VendorId;
+import org.epics.pvds.impl.RTPSWriter.BufferEntry;
+import org.epics.pvds.util.ResettableLatch;
 
 /**
  * RTPS message processor implementation.
@@ -27,6 +34,8 @@ import org.epics.pvds.Protocol.VendorId;
  */
 public class RTPSParticipant extends RTPSEndPoint implements AutoCloseable
 {
+	private static final Logger logger = Logger.getLogger(RTPSParticipant.class.getName());
+
 	protected final MessageReceiver receiver = new MessageReceiver();
     protected final MessageReceiverStatistics stats = new MessageReceiverStatistics();
 
@@ -35,7 +44,7 @@ public class RTPSParticipant extends RTPSEndPoint implements AutoCloseable
 
     private static final int INITIAL_WRITER_CAPACITY = 16;
     protected final Map<GUIDHolder, RTPSWriter> writers = new HashMap<GUIDHolder, RTPSWriter>(INITIAL_WRITER_CAPACITY);
-
+    protected final List<RTPSWriter> writersList = new CopyOnWriteArrayList<RTPSWriter>();
     
     private static final int INITIAL_W2R_CAPACITY = 16;
     protected final Map<GUIDHolder, RTPSReader> writer2readerMapping = new HashMap<GUIDHolder, RTPSReader>(INITIAL_W2R_CAPACITY);
@@ -46,6 +55,10 @@ public class RTPSParticipant extends RTPSEndPoint implements AutoCloseable
     
     public RTPSParticipant(GUIDPrefix guidPrefix, String multicastNIF, int domainId, boolean writersOnly) {
 		super(guidPrefix, multicastNIF, domainId, !writersOnly);
+
+	    logger.config(() -> "Transmitter: rate limit: " + udpTxRateGbitPerSec + "Gbit/sec (period: " + delay_ns + " ns)");
+	    
+	    start();
 	}
 
     public RTPSReader createReader(int readerId, GUID writerGUID,
@@ -105,13 +118,19 @@ public class RTPSParticipant extends RTPSEndPoint implements AutoCloseable
     		
     	RTPSWriter writer = new RTPSWriter(this, writerId, maxMessageSize, messageQueueSize, qos, listener);
     	writers.put(guid, writer);
+    	writersList.add(writer);
+    	
+    	newDataAvailableLatch.countDown();
+    	
     	return writer;
     }
 
     void destroyWriter(int writerId)
     {
     	GUIDHolder guid = new GUIDHolder(guidPrefix.value, writerId);
-    	writers.remove(guid);
+    	RTPSWriter writer = writers.remove(guid);
+    	if (writer != null)
+    		writersList.remove(writer);
     }
 
     private final GUIDHolder localWriterGUID = new GUIDHolder();
@@ -345,7 +364,7 @@ public class RTPSParticipant extends RTPSEndPoint implements AutoCloseable
     public final long PERIODIC_TIMER_MS = 1000;
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean stopped = new AtomicBoolean();
-    public void start()
+    private void start()
     {
 		if (started.getAndSet(true))
 			return;
@@ -398,25 +417,166 @@ public class RTPSParticipant extends RTPSEndPoint implements AutoCloseable
     		{
     			th.printStackTrace();
     		}
-	    }, "processor-rx-thread").start();
+	    }, "participant-rx-thread").start();
     	
+	    // TODO start only if there are writers
+	    new Thread(() -> {
+    		
+    		try
+    		{
+    			sendProcess();
+    		}
+    		catch (Throwable th) 
+    		{
+    			th.printStackTrace();
+    		}
+	    }, "participant-tx-thread").start();
     }
 
-    public void stop()
+    private void stop()
     {
 		stopped.set(true);
+		
+    	newDataAvailableLatch.countDown();
     }
     
     // suppresses AutoCloseable.close() exception
 	@Override
 	public void close()
 	{
-		ArrayList<RTPSWriter> writersArray = new ArrayList<RTPSWriter>(writers.values());
-		writersArray.forEach((writer) -> writer.close());
+		//ArrayList<RTPSWriter> writersArray = new ArrayList<RTPSWriter>(writers.values());
+		//writersArray.forEach((writer) -> writer.close());
+		writersList.forEach((writer) -> writer.close());
 		
 		ArrayList<RTPSReader> readersArray = new ArrayList<RTPSReader>(readers.values());
 		readersArray.forEach((reader) -> reader.close());
 		
 		stop();
 	}
+	
+    // TODO to be configurable
+
+	// NOTE: Giga means 10^9 (not 1024^3)
+    private final double udpTxRateGbitPerSec = Double.valueOf(System.getProperty("PVDS_MAX_THROUGHPUT", "0.90")); // TODO make configurable, figure out better default!!!
+    private final int MESSAGE_ALIGN = 32;
+    private final int MAX_PACKET_SIZE_BYTES_CONF = Math.max(64, Integer.valueOf(System.getProperty("PVDS_MAX_UDP_PACKET_SIZE", "8000")));
+    private final int MAX_PACKET_SIZE_BYTES = ((MAX_PACKET_SIZE_BYTES_CONF + MESSAGE_ALIGN - 1) / MESSAGE_ALIGN) * MESSAGE_ALIGN;
+    private final long delay_ns = (long)(MAX_PACKET_SIZE_BYTES * 8 / udpTxRateGbitPerSec);
+
+    public int getMaxPacketSize() {
+    	return MAX_PACKET_SIZE_BYTES;
+    }
+    
+    
+    private final ResettableLatch newDataAvailableLatch = new ResettableLatch(1);
+    
+    void notifyDataAvailbale()
+    {
+    	newDataAvailableLatch.countDown();
+    }
+    
+    public void sendProcess() throws IOException, InterruptedException
+    {
+		while (true)
+    	{
+			newDataAvailableLatch.reset(1);
+			long nextSendTime = Long.MAX_VALUE;
+    		for (RTPSWriter writer : writersList)
+    		{
+
+    			BufferEntry be = writer.poll();
+    			if (be == null)
+    			{
+    				long heartbeatTime = writer.getHeartbeatTime();
+    				if (heartbeatTime < nextSendTime)
+    					nextSendTime = heartbeatTime;
+    				continue;
+    			}
+    			
+    			rateLimitingDelay();
+		
+				writer.send(be);
+
+				// we still have data, reschedule ASAP (now)
+				nextSendTime = 0;
+    		}
+
+    		if (stopped.get())
+				break;
+    		
+    		// sleep until nextSendTime,
+    		// or until one of the writer got some new data
+    		if (nextSendTime != 0)
+    		{
+    			long timeToWait = nextSendTime - System.currentTimeMillis();
+    			if (timeToWait > 0)
+    			{
+    				// spurious awake is OK
+    	   			newDataAvailableLatch.await(timeToWait, TimeUnit.MILLISECONDS);
+    			}
+    		}
+    		
+    	}
+    }
+    
+    // NOTE: heartbeat, acknack are excluded
+    private long lastSendTime = 0;
+
+    private final void rateLimitingDelay()
+    {
+    	// TODO we need at least 1us precision?
+		
+    	// while-loop only version
+	    // does not work well on single-core CPUs
+		/*
+	    long endTime = lastSendTime + delay_ns;
+		long sleep_ns;
+	    while (true)
+	    {
+			lastSendTime = System.nanoTime();
+	    	sleep_ns = endTime - lastSendTime;
+	    	if (sleep_ns < 1000)
+	    		break;
+	    	else if (sleep_ns > 100000)	// NOE: on linux this is ~2000
+		    	Thread.sleep(0);
+	    	//	Thread.yield();
+	    }*/
+		long endTime = lastSendTime + delay_ns;
+		while (endTime - System.nanoTime() > 0);
+		lastSendTime = System.nanoTime();	// TODO adjust nanoTime() overhead?
+	    //System.out.println(sleep_ns);
+    }
+    
+    
+    /*
+	private final static int INITIAL_DESTINATION_QUEUE_SIZE = 128;
+	private final HashMap<InetSocketAddress, LinkedList<BufferEntry>> destinationQueueMap =
+			new HashMap<InetSocketAddress, LinkedList<BufferEntry>>(INITIAL_DESTINATION_QUEUE_SIZE);
+	
+	private final void move2DestinationQueue(BufferEntry bufferEntry)
+	{
+		bufferEntry.lock();
+		try
+		{
+			LinkedList<BufferEntry> destinationQueue =	destinationQueueMap.get(bufferEntry.sendAddress);
+			if (destinationQueue == null)
+			{
+				destinationQueue = new LinkedList<BufferEntry>();
+				destinationQueueMap.put(bufferEntry.sendAddress, destinationQueue);
+			}
+			
+			destinationQueue.add(bufferEntry);
+		}
+		finally 
+		{
+			bufferEntry.unlock();
+		}
+	}
+	
+	private final void sendPacket(LinkedList<BufferEntry> destinationQueue)
+	{
+		BufferEntry bufferEntry = destinationQueue.removeFirst();
+	}
+	*/
+	
 }

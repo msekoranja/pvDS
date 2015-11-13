@@ -13,17 +13,19 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 import org.epics.pvds.Protocol;
+import org.epics.pvds.Protocol.EntityId;
 import org.epics.pvds.Protocol.GUID;
 import org.epics.pvds.Protocol.GUIDPrefix;
 import org.epics.pvds.Protocol.SequenceNumberSet;
 import org.epics.pvds.Protocol.SubmessageHeader;
+import org.epics.pvds.impl.RTPSParticipant.PeriodicTimerCallback;
 
 /**
  * RTPS message receiver implementation.
  * The class itself is not thread-safe, i.e. processSubMessage() method should be called from only one thread. 
  * @author msekoranja
  */
-public class RTPSReader implements AutoCloseable
+public class RTPSReader implements PeriodicTimerCallback, AutoCloseable
 {
 	private static final Logger logger = Logger.getLogger(RTPSReader.class.getName());
 
@@ -173,6 +175,9 @@ public class RTPSReader implements AutoCloseable
 	    
 	    logger.config(() -> "Receiver: fragmentation buffer size = " + messageQueueSize + " packets of " + this.maxMessageSize + " bytes (max payload size)");
 
+	    // setup liveliness timer
+	    // TODO better key, TODO there is a mask here not to collide with writers
+	    participant.addPeriodicTimeSubscriber(new GUIDHolder(new GUID(guidPrefix, new EntityId(readerId | EntityId.ENTITYKIND_READER_MASK))), this);
 	}
     
     // used by addAckNackSubmessage method only
@@ -472,9 +477,12 @@ public class RTPSReader implements AutoCloseable
     private final TreeSet<Long> missingSequenceNumbers = new TreeSet<Long>();
     
     private long lastHeartbeatLastSN = 0;
+    private long lastHeartbeatTimestamp = 0;
     
     //private static final int ACKNACK_MISSING_COUNT_THRESHOLD = 64;
-    //private long lastAckNackTimestamp = Long.MIN_VALUE;
+    private long lastAckNackTimestamp = 0;
+    // TODO
+    private static final int ACKNACK_UNRELIABLE_RATE_LIMIT_MS = 1000;
     
     // TODO initialize (message header only once), TODO calculate max size (72?)
     private final ByteBuffer ackNackBuffer = ByteBuffer.allocate(128);
@@ -482,8 +490,11 @@ public class RTPSReader implements AutoCloseable
     {
     	if (!reliable)
     	{
+    		// TODO consider better limiting (too much limiting might affect writes liveness checks)
+    		if ((timestamp - lastAckNackTimestamp) < ACKNACK_UNRELIABLE_RATE_LIMIT_MS)
+    			return false;
+    		
     		// ack all seqNo
-    		// TODO possible opt (set this only once)
 	    	readerSNState.reset(Long.MAX_VALUE);
     	}
     	else if (missingSequenceNumbers.isEmpty())
@@ -525,7 +536,7 @@ public class RTPSReader implements AutoCloseable
 			return false;
 		}
 	    
-    	//lastAckNackTimestamp = timestamp;
+    	lastAckNackTimestamp = timestamp;
     	
     	return true;
     }
@@ -535,10 +546,15 @@ public class RTPSReader implements AutoCloseable
     	return sendAckNackResponse(System.currentTimeMillis());
 	}	
 
+    private void checkAckNackCondition(long timestamp)
+    {
+    	// TODO !!!if (timestamp - lastAckNackTimestamp > 3)
+    		sendAckNackResponse(timestamp);
+    }
+
     private void checkAckNackCondition()
     {
-    	// TODO !!!if (System.currentTimeMillis() - lastAckNackTimestamp > 3)
-    		sendAckNackResponse();
+    	checkAckNackCondition(System.currentTimeMillis());
     }
     
     
@@ -895,24 +911,29 @@ public class RTPSReader implements AutoCloseable
 				}
 			}
 
+			final long now = System.currentTimeMillis();
+
 			// FinalFlag flag (require response)
 			boolean flagF = (receiver.submessageFlags & 0x02) == 0x02;
 			if (flagF || sendAckNack)
-				sendAckNackResponse();
+				sendAckNackResponse(now);
 			// first missing seqNo
 			else if (newMissingSN > 0 && missingSequenceNumbers.size() == newMissingSN)
-				sendAckNackResponse();
-			// repetetive HB (no new data)
+				sendAckNackResponse(now);
+			// repetitive HB (no new data)
 			else if (lastHeartbeatLastSN == lastSN)
-				checkAckNackCondition();
+				checkAckNackCondition(now);
 			else if (newMissingSN > 0)
-				checkAckNackCondition();
+				checkAckNackCondition(now);
 
 			// LivelinessFlag
 			//boolean flagL = (receiver.submessageFlags & 0x04) == 0x04;
 
 			lastHeartbeatLastSN = lastSN;
+			lastHeartbeatTimestamp = now;
 
+			writerPresent();
+			
 			// TODO log
 			//System.out.println("\t" + missingSequenceNumbers);
 			//System.out.println("\tmissed   : " + stats.missedSN);
@@ -1049,6 +1070,7 @@ public class RTPSReader implements AutoCloseable
     private void newDataNotify(SharedBuffer buffer)
     {
     	// TODO do we really need to send after every completed?
+    	// if writer is reliable yes
     	sendAckNackResponse();
     	
     	if (!newDataQueue.offer(buffer))
@@ -1060,10 +1082,22 @@ public class RTPSReader implements AutoCloseable
     	}
     }
     
-    public SharedBuffer waitForNewData(long timeout) throws InterruptedException
+    public SharedBuffer read()
     {
-    	return newDataQueue.poll(timeout, TimeUnit.MILLISECONDS);
+    	return newDataQueue.poll();
     }
+    
+    public SharedBuffer read(long timeout, TimeUnit unit) throws InterruptedException
+    {
+    	return newDataQueue.poll(timeout, unit);
+    }
+  
+    public boolean isEmpty() {
+    	return newDataQueue.isEmpty();
+    }
+    
+    // TODO disruptor based monitor API?
+    // TODO writer presence status notification
     
     private void missedSequencesNotify(long start, long end)
 	{
@@ -1078,10 +1112,68 @@ public class RTPSReader implements AutoCloseable
 		}
 	}
 
-	// suppresses AutoCloseable.close() exception
+    private final long LIVENESS_CHECK_PERIOD_MS = 5*1000;
+    private final long LIVENESS_TIMEOUT_MS = 10*1000;
+    
+    private boolean writerPresent = false;
+    
+    // to be called periodically within the same read thread 
+    private final void livenessCheck() {
+    	
+    	if (writerPresent)
+    	{
+	    	long now = System.currentTimeMillis();
+	    	if (now - lastHeartbeatTimestamp > LIVENESS_TIMEOUT_MS)
+	    	{
+				writerPresent = false;
+	
+				if (listener != null)
+		    	{
+		    		try {
+		    			listener.writerAbsent();
+		    		} catch (Throwable th) {
+		    			// TODO log
+		    			th.printStackTrace();
+		    		}
+		    	}
+	    	}
+    	}
+    }
+
+    private final void writerPresent()
+    {
+    	if (!writerPresent)
+    	{
+	    	writerPresent = true;
+	
+	    	if (listener != null)
+	    	{
+	    		try {
+	    			listener.writerPresent();
+	    		} catch (Throwable th) {
+	    			// TODO log
+	    			th.printStackTrace();
+	    		}
+	    	}
+    	}
+    }
+    
+    long lastLivenessCheck = 0;
+    
+    @Override
+	public void onPeriod(long now) {
+    	if (now - lastLivenessCheck >= LIVENESS_CHECK_PERIOD_MS)
+    	{
+    		livenessCheck();
+    		lastLivenessCheck = now;
+    	}
+	}
+
+    // suppresses AutoCloseable.close() exception
 	@Override
 	public void close()
 	{
+	    participant.removePeriodicTimeSubscriber(new GUIDHolder(new GUID(guidPrefix, new EntityId(readerId | EntityId.ENTITYKIND_READER_MASK))));
 		participant.destroyReader(readerId, writerGUID);
 	}
 }
