@@ -401,17 +401,23 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
     {
     	long waitedAckSeqNo = waitForAckedSeqNo.get();
     	//System.out.println("\twaited:" + waitedAckSeqNo);
-    	if (waitedAckSeqNo > 0 && minAckSeqNoHeap.size() > 0)
+    	if (minAckSeqNoHeap.size() > 0)
     	{
     		long minSeqNo = minAckSeqNoHeap.peek().getValue();
     		//System.out.println("\tmin:" + minSeqNo);
-    		if (minSeqNo >= waitedAckSeqNo)
+    		if (waitedAckSeqNo > 0 && minSeqNo >= waitedAckSeqNo)
     		{
     			//System.out.println("reporting min: " + minSeqNo);
 				synchronized (ackMonitor) {
 					lastAckedSeqNo = minSeqNo;
 					ackMonitor.notifyAll();
 				}
+    		}
+    		else
+    		{
+    			synchronized (ackMonitor) {
+    				lastAckedSeqNo = minSeqNo;
+    			}    			
     		}
     	}
     }
@@ -420,7 +426,7 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
     private final long LIVENESS_TIMEOUT_MS = 10*1000;
     
     // to be called periodically within the same (as ack()) processing thread 
-    void livenessCheck() {
+    private final void livenessCheck() {
     	
     	if (readerMap.size() == 0)
     		return;
@@ -490,11 +496,12 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
     		if (readerCount.get() == 0 ||
     			seqNo <= lastAckedSeqNo)
     			return true;
-    		
+
     		waitForAckedSeqNo.set(seqNo);
     		long l1 = System.currentTimeMillis();
     		while (seqNo > lastAckedSeqNo)
     		{
+    		
 	    		ackMonitor.wait(timeout);
 	    		
 	    		// spurious wake-up check
@@ -1009,7 +1016,8 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 	@Override
 	public void close()
 	{
-		participant.destroyWriter(writerId);
+	    participant.removePeriodicTimeSubscriber(new GUIDHolder(writerGUID));
+	    participant.destroyWriter(writerId);
 	}
 	
 	

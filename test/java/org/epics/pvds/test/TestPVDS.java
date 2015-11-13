@@ -25,7 +25,16 @@ public class TestPVDS {
 		public void missedSequencesNotify(long start, long end) {
 			System.out.println("missedSequencesNotify: " + start + " -> " + end);						
 		}
-		
+
+		@Override
+		public void writerPresent() {
+			System.out.println("writerPresent");						
+		}
+
+		@Override
+		public void writerAbsent() {
+			System.out.println("writerAbsent");						
+		}
 	}
 	
 	static class RTPSWriterListenerImpl implements RTPSWriterListener {
@@ -79,7 +88,7 @@ public class TestPVDS {
 	    GUID writerGUID = null;
 	    if (isTx)
 	    {
-		    final RTPSWriter writer = processor.createWriter(0x12345678, maxMessageSize, messageQueueSize,
+		    final RTPSWriter writer = processor.createWriter(128, maxMessageSize, messageQueueSize,
 		    		new QoS.WriterQOS[] { new QoS.QOS_LIMIT_READERS(3) }, new RTPSWriterListenerImpl());
 		    writerGUID = writer.getGUID();
 		    System.out.println("Writer GUID: " + writerGUID);
