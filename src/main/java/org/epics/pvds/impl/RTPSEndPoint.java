@@ -23,6 +23,8 @@ public class RTPSEndPoint
 {
 	private static final Logger logger = Logger.getLogger(RTPSEndPoint.class.getName());
 
+    private static final String PVDS_MCAST_ADDR_PREFIX_DEFAULT = "239.255";
+
 	/*
 	protected final DatagramChannel discoveryMulticastChannel;
 	protected final DatagramChannel discoveryUnicastChannel;
@@ -62,12 +64,16 @@ public class RTPSEndPoint
 				throw new IOException("no network interface available");
 			
 			logger.config(() -> "pvDS multicast NIF: " + nif.getDisplayName());
-			
+
+    		final String mcastAddressPrefix = 
+    				System.getProperty("PVDS_MCAST_ADDR_PREFIX", PVDS_MCAST_ADDR_PREFIX_DEFAULT);
+			logger.config(() -> "pvDS multicast address prefix: " + mcastAddressPrefix + ".xxx.xxx");
+
 			// TODO configurable IPv4 multicast prefix
 			
 			/*
 	        discoveryMulticastGroup =
-	        	InetAddress.getByName("239.255." + String.valueOf(domainId) + ".1");
+	        	InetAddress.getByName(mcastAddressPrefix + "." + String.valueOf(domainId) + ".1");
 	        discoveryMulticastPort = Protocol.PB + domainId * Protocol.DG + Protocol.d0;
 	        
 	        discoveryMulticastChannel = DatagramChannel.open(StandardProtocolFamily.INET)
@@ -103,7 +109,7 @@ public class RTPSEndPoint
 		    */
 		
 			multicastGroup =
-					InetAddress.getByName("239.255." + String.valueOf(domainId) + ".2");
+					InetAddress.getByName(mcastAddressPrefix + "." + String.valueOf(domainId) + ".2");
 			multicastPort = Protocol.PB + domainId * Protocol.DG + Protocol.d2;
 	
 			if (enableMulticastChannel)
