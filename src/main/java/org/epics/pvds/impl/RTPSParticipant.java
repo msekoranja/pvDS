@@ -49,12 +49,12 @@ public class RTPSParticipant extends RTPSEndPoint implements AutoCloseable
     private static final int INITIAL_W2R_CAPACITY = 16;
     protected final Map<GUIDHolder, RTPSReader> writer2readerMapping = new HashMap<GUIDHolder, RTPSReader>(INITIAL_W2R_CAPACITY);
    
-    public RTPSParticipant(String multicastNIF, int domainId, boolean writersOnly) {
-		this(new GUIDPrefix(), multicastNIF, domainId, writersOnly);
+    public RTPSParticipant(String multicastNIF, int domainId, int groupId, boolean writersOnly) {
+		this(new GUIDPrefix(), multicastNIF, domainId, groupId, writersOnly);
 	}
     
-    public RTPSParticipant(GUIDPrefix guidPrefix, String multicastNIF, int domainId, boolean writersOnly) {
-		super(guidPrefix, multicastNIF, domainId, !writersOnly);
+    public RTPSParticipant(GUIDPrefix guidPrefix, String multicastNIF, int domainId, int groupId, boolean writersOnly) {
+		super(guidPrefix, multicastNIF, domainId, groupId, !writersOnly);
 
 	    logger.config(() -> "Transmitter: rate limit: " + udpTxRateGbitPerSec + "Gbit/sec (period: " + delay_ns + " ns)");
 	    

@@ -41,7 +41,8 @@ public class RTPSEndPoint
 	protected final NetworkInterface nif;
 	protected final int participantId;
     
-	public RTPSEndPoint(GUIDPrefix guidPrefix, String multicastNIF, int domainId, boolean enableMulticastChannel)
+	// NOTE: eventually one add a constructor that takes InetAddress (and port) instead domainId, groupId
+	public RTPSEndPoint(GUIDPrefix guidPrefix, String multicastNIF, int domainId, int groupId, boolean enableMulticastChannel)
 	{
 		try
 		{
@@ -55,6 +56,12 @@ public class RTPSEndPoint
 			if (domainId > Protocol.MAX_DOMAIN_ID)
 				throw new IllegalArgumentException("domainId >= " + String.valueOf(Protocol.MAX_DOMAIN_ID));
 	
+			if (groupId < 0)
+				throw new IllegalArgumentException("groupId < 0");
+
+			if (groupId > Protocol.MAX_GROUP_ID)
+				throw new IllegalArgumentException("groupId >= " + String.valueOf(Protocol.MAX_GROUP_ID));
+
 			if (multicastNIF == null)
 				nif = InetAddressUtil.getLoopbackNIF();
 			else
@@ -108,8 +115,9 @@ public class RTPSEndPoint
 		    discoveryUnicastChannel.configureBlocking(false);
 		    */
 		
+			final int groupAddr = groupId + Protocol.USER_GROUP_ID_OFFSET;
 			multicastGroup =
-					InetAddress.getByName(mcastAddressPrefix + "." + String.valueOf(domainId) + ".2");
+					InetAddress.getByName(mcastAddressPrefix + '.' + String.valueOf(domainId) + '.' + String.valueOf(groupAddr));
 			multicastPort = Protocol.PB + domainId * Protocol.DG + Protocol.d2;
 	
 			if (enableMulticastChannel)

@@ -239,6 +239,12 @@ In case the octetsToNextHeader==0 and the kind of Submessage is PAD or INFO_TS, 
 	public static final int RTPS_SUBMESSAGE_HEADER_SIZE = 4;
 	public static final int RTPS_SUBMESSAGE_SIZE_MIN = 8;
 	
+	// pvDS specific (256 -2 (0,255) - 1 (1 == discovery) - 15 (reserved))
+	public static final int MAX_GROUP_ID = 238;
+	// pvDS specific (1 - discovery, 2-15 - reserved)
+	public static final int USER_GROUP_ID_OFFSET = 16;
+	// NOTE: MAX_GROUP_ID + USER_GROUP_ID_OFFSET <= 254
+
 	public static final int MAX_DOMAIN_ID = 232;
 	public static final int MAX_PARTICIPANT_ID = 119;
 

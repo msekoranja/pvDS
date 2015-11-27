@@ -26,7 +26,7 @@ public class RTPSParticipantTest extends TestCase {
 	{
 		try
 		{
-			new RTPSParticipant(null, -1, true);
+			new RTPSParticipant(null, -1, 0, true);
 			fail("negative domainId accepted");
 		} 
 		catch (IllegalArgumentException iae) {
@@ -35,15 +35,33 @@ public class RTPSParticipantTest extends TestCase {
 		
 		try
 		{
-			new RTPSParticipant(null, Protocol.MAX_DOMAIN_ID + 1, true);
+			new RTPSParticipant(null, Protocol.MAX_DOMAIN_ID + 1, 0, true);
 			fail("out-of-range domainId accepted");
 		} 
 		catch (IllegalArgumentException iae) {
 			// OK
 		}
 
-		try (RTPSParticipant p1 = new RTPSParticipant(null, 0, true);
-				RTPSParticipant p2 = new RTPSParticipant(null, 0, true)) {
+		try
+		{
+			new RTPSParticipant(null, 0, -1, true);
+			fail("negative groupId accepted");
+		} 
+		catch (IllegalArgumentException iae) {
+			// OK
+		}
+		
+		try
+		{
+			new RTPSParticipant(null, 0, Protocol.MAX_GROUP_ID + 1, true);
+			fail("out-of-range groupId accepted");
+		} 
+		catch (IllegalArgumentException iae) {
+			// OK
+		}
+
+		try (RTPSParticipant p1 = new RTPSParticipant(null, 0, 0, true);
+				RTPSParticipant p2 = new RTPSParticipant(null, 0, 0, true)) {
 			assertNotNull(p1.getGUIDPrefix());
 			assertNotNull(p2.getGUIDPrefix());
 			assertSame(p1.getGUIDPrefix(), p1.getGUIDPrefix());
@@ -54,7 +72,7 @@ public class RTPSParticipantTest extends TestCase {
 	}
 
 	public void testDuplicateEntityIdCreation() {
-		try (RTPSParticipant p1 = new RTPSParticipant(null, 0, false)) {
+		try (RTPSParticipant p1 = new RTPSParticipant(null, 0, 0, false)) {
 			GUID guid = new GUID(new GUIDPrefix(), new EntityId(0));
 			p1.createReader(0, guid, 16, 1);
 			p1.createReader(1, guid, 16, 1);
@@ -80,7 +98,7 @@ public class RTPSParticipantTest extends TestCase {
 
 
 	public void testReaderOnWriterOnlyParticipant() {
-		try (RTPSParticipant p1 = new RTPSParticipant(null, 0, true)) {
+		try (RTPSParticipant p1 = new RTPSParticipant(null, 0, 0, true)) {
 			GUID guid = new GUID(new GUIDPrefix(), new EntityId(0));
 			try {
 				p1.createReader(0, guid, 16, 1);
@@ -92,7 +110,7 @@ public class RTPSParticipantTest extends TestCase {
 	}
 
 	public void testClose() {
-		try (RTPSParticipant p1 = new RTPSParticipant(null, 0, false)) {
+		try (RTPSParticipant p1 = new RTPSParticipant(null, 0, 0, false)) {
 			p1.createWriter(0, 16, 1);
 			p1.createWriter(1, 16, 1);
 			p1.createWriter(2, 16, 1);
@@ -105,8 +123,8 @@ public class RTPSParticipantTest extends TestCase {
 	
 	public void testLossLessReliableOrderedCommunication() throws InterruptedException
 	{
-		try (RTPSParticipant readerParticipant = new RTPSParticipant(null, 0, false);
-			 RTPSParticipant writerParticipant = new RTPSParticipant(null, 0, true)) {
+		try (RTPSParticipant readerParticipant = new RTPSParticipant(null, 0, 0, false);
+			 RTPSParticipant writerParticipant = new RTPSParticipant(null, 0, 0, true)) {
 			
 			final int MESSAGE_SIZE = Long.BYTES;
 			final int QUEUE_SIZE = 3;
@@ -295,8 +313,8 @@ public class RTPSParticipantTest extends TestCase {
 	
 	public void testLossyReliableOrderedCommunication() throws InterruptedException {
 		
-		try (RTPSParticipant readerParticipant = new RTPSParticipant(null, 0, false);
-			 RTPSParticipant writerParticipant = new RTPSParticipant(null, 0, true)) {
+		try (RTPSParticipant readerParticipant = new RTPSParticipant(null, 0, 0, false);
+			 RTPSParticipant writerParticipant = new RTPSParticipant(null, 0, 0, true)) {
 			
 			final int queueSize = 11;
 
@@ -326,8 +344,8 @@ public class RTPSParticipantTest extends TestCase {
 
 		System.getProperties().put("PVDS_MAX_UDP_PACKET_SIZE", "64");
 		
-		try (RTPSParticipant readerParticipant = new RTPSParticipant(null, 0, false);
-			 RTPSParticipant writerParticipant = new RTPSParticipant(null, 0, true)) {
+		try (RTPSParticipant readerParticipant = new RTPSParticipant(null, 0, 0, false);
+			 RTPSParticipant writerParticipant = new RTPSParticipant(null, 0, 0, true)) {
 			
 			final int queueSize = 5;
 

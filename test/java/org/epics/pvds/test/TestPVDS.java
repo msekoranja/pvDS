@@ -79,9 +79,11 @@ public class TestPVDS {
 	    	throw new IllegalArgumentException("invalid mode");
 
 		final int domainId = 0;
+		final int groupId = 0;
 	    final String multicastNIF = (args.length > 0) ? args[0] : null;
 	    
-	    final RTPSParticipant processor = new RTPSParticipant(multicastNIF, domainId, !isRx);
+	    @SuppressWarnings("resource")
+		final RTPSParticipant processor = new RTPSParticipant(multicastNIF, domainId, groupId, !isRx);
 	    
 	    final long TIMEOUT_MS = 3000;
 	    
