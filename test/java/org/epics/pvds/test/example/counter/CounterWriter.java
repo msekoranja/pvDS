@@ -11,6 +11,7 @@ public class CounterWriter {
 		
 		@SuppressWarnings("resource")
 		RTPSParticipant participant = new RTPSParticipant(
+				Constants.WRITER_GUID_PREFIX,
 				Constants.LOCAL_MCAST_NIF,
 				Constants.DOMAIN_ID,
 				Constants.GROUP_ID,
