@@ -26,7 +26,7 @@ public final class MessageReceiver
 	
 	public void reset() 
 	{
-		// it does not makes sence to reset
+		// it does not makes sense to reset
 		// receivedFrom
 		// sourceVersion, sourceVendorId, sourceGuidPrefix
 		// since they are reset by every message header 
