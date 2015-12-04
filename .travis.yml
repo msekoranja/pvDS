@@ -18,3 +18,13 @@ addons:
     build_command:   "./gradlew build -x test"
     branch_pattern: coverity_scan
 
+
+
+
+
+before_install:
+  - pip install codecov
+after_success:
+  - codecov
+
+
