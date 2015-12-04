@@ -2,3 +2,19 @@ language: java
 jdk:
   - oraclejdk8
 
+env:
+  global:
+   # The next declaration is the encrypted COVERITY_SCAN_TOKEN, created
+   #   via the "travis encrypt" command using the project repo's public key
+   - secure: "i7K1AIdBYpP9KstZ9s56AslNRGn38Lilq5Nn7/vz5cOnLCvK0Der5MWxGQnxXbjl9aMIRQ8olPBis1hNlRERZ2wlKhVZJ7WD4N9zGrnQMgHvB9z1s/X4Mxdbq32HfdV/EKZSUm/qXydximASpT0e/Uj0qOIS5bfVqaYiNtB3cfhXlEwXvfcJtDAhksTuZnjzzINZtoQX0RYjrC/8frDvlfCqWRSHPiLb00djCvWaHqeRWXkX/P6bMlST3WRDuy49EUZNTECHYAScSlnMBM67mH+YrbTasSAHf9vVVqDrrY9R6LOmbLO+5T/atZS/JKrQisMEunufePkN8hitCk9CX5OVj9hJaC45Vsl6nMQO7F0ocl75bek9b3QRGLwpEovhEB5NSLZhxNXyvNQ6wRX/Jc6pTynoFPyHqYo+SXkVZuGmcQguvcyhZLuhAvbicPRsLgJFEuMSSfAUi7fMu238BoWb07HGzrTCMQg9U5wNn+hqvxb6n4KjafTLYVEDXoGdDbO0kzOVC673auKhUHmZCzQdLhiTDQK7WuZAgRFV+ZfEd/tXlZ2VGpQyRiWWfQq+E3UXcWOePM/ouNrzM6FaAG5WTRcatuOxit1grGHYx4rYdLtHRlv/a5tbGSV0kgvPIQ5EKTUxiXDf8Q9YZ4lLSbmKCH1iP7srP5GlExTWobA="
+
+addons:
+  coverity_scan:
+    project:
+      name: "msekoranja/pvDS"
+      description: "Build submitted via Travis CI"
+    notification_email: matej.sekoranja@cosylab.com
+    build_command_prepend: "./gradlew clean"
+    build_command:   "./gradlew -Dskip.tests build"
+    branch_pattern: coverity_scan
+
