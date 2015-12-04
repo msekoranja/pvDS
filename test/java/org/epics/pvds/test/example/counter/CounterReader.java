@@ -22,9 +22,9 @@ public class CounterReader {
 		GUID writerGUID = Constants.WRITER_GUID; //GUID.parse(args[0]);
 		RTPSReader reader = participant.createReader(
 				0, writerGUID,
-				CounterData.MESSAGE_SIZE, 2,		// TODO RELIABLE/ORDERED requires queueSize > 1
-//				QoS.RELIABLE_ORDERED_QOS, null
-				QoS.UNRELIABLE_UNORDERED_QOS, null
+				CounterData.MESSAGE_SIZE, 2,
+				QoS.RELIABLE_ORDERED_QOS, null
+//				QoS.UNRELIABLE_UNORDERED_QOS, null
 				);
 		
 		CounterData counterData = new CounterData();

@@ -223,6 +223,7 @@ public class RTPSReader implements PeriodicTimerCallback, AutoCloseable
 
     	// NOTE: it is important to have/save space for nextExpectedSequenceNumber message for QOS_RELIABLE
 
+    	//System.out.println("getFragmentationBufferEntry: nextExpectedSequenceNumber " + nextExpectedSequenceNumber + ", next already active: " + activeFragmentationBuffers.containsKey(nextExpectedSequenceNumber));    	
     	
     	// take next
     	synchronized (freeFragmentationBuffers) {
@@ -231,6 +232,7 @@ public class RTPSReader implements PeriodicTimerCallback, AutoCloseable
     		// we need QOS_RELIABLE here to avoid getting out of buffers
     		if (!reliable || /* !ordered || - nextExpectedSequenceNumber handles this */
     			nextExpectedSequenceNumber == 0 ||
+    			nextExpectedSequenceNumber == firstSegmentSeqNo ||
     			freeFragmentationBuffers.size() != 1 ||
     			activeFragmentationBuffers.containsKey(nextExpectedSequenceNumber))
     		{
