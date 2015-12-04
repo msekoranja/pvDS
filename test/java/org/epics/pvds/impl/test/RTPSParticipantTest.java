@@ -14,6 +14,7 @@ import org.epics.pvds.Protocol.EntityId;
 import org.epics.pvds.Protocol.GUID;
 import org.epics.pvds.Protocol.GUIDPrefix;
 import org.epics.pvds.impl.QoS;
+import org.epics.pvds.impl.QoS.ReaderQOS;
 import org.epics.pvds.impl.QoS.QOS_SEND_SEQNO_FILTER.SeqNoFilter;
 import org.epics.pvds.impl.RTPSParticipant;
 import org.epics.pvds.impl.RTPSReader;
@@ -121,7 +122,7 @@ public class RTPSParticipantTest extends TestCase {
 		}
 	}
 	
-	public void testLossLessReliableOrderedCommunication() throws InterruptedException
+	private void lossLessCommunication(ReaderQOS[] readerQoS) throws InterruptedException
 	{
 		try (RTPSParticipant readerParticipant = new RTPSParticipant(null, 0, 0, false);
 			 RTPSParticipant writerParticipant = new RTPSParticipant(null, 0, 0, true)) {
@@ -129,6 +130,7 @@ public class RTPSParticipantTest extends TestCase {
 			final int MESSAGE_SIZE = Long.BYTES;
 			final int MESSAGES = 100;
 			final int TIMEOUT_MS = 1000;
+			final int UNRELIABLE_TIMEOUT_MS = 10;
 			
 			for (int readerQueueSize = 1; readerQueueSize <= MESSAGES; readerQueueSize++)
 			{
@@ -139,7 +141,7 @@ public class RTPSParticipantTest extends TestCase {
 					RTPSReader reader = readerParticipant.createReader(
 							readerQueueSize, writer.getGUID(), 
 							MESSAGE_SIZE, readerQueueSize,
-							QoS.RELIABLE_ORDERED_QOS, null))
+							readerQoS, null))
 				{
 					ByteBuffer writeBuffer = ByteBuffer.allocate(MESSAGE_SIZE);
 					
@@ -153,26 +155,85 @@ public class RTPSParticipantTest extends TestCase {
 						assertTrue(seqNo != 0);
 					}
 		
-					for (int i = 0; i < MESSAGES; i++)
+					// NOTE: by ref compare, OK for this test
+					if (readerQoS == QoS.RELIABLE_ORDERED_QOS)
 					{
-						try (SharedBuffer sharedBuffer = reader.read(TIMEOUT_MS, TimeUnit.MILLISECONDS))
+						for (int i = 0; i < MESSAGES; i++)
 						{
-							assertNotNull(sharedBuffer);
-							assertEquals(i, sharedBuffer.getBuffer().getLong());
+							try (SharedBuffer sharedBuffer = reader.read(TIMEOUT_MS, TimeUnit.MILLISECONDS))
+							{
+								assertNotNull(sharedBuffer);
+								assertEquals(i, sharedBuffer.getBuffer().getLong());
+							}
 						}
 					}
+					else if (readerQoS == QoS.UNRELIABLE_ORDERED_QOS)
+					{
+						// duplicate, order test
+						long lastValue = Long.MIN_VALUE;
+						Set<Long> valueSet = new HashSet<Long>(MESSAGES, 1);
+						while (true)
+						{
+							try (SharedBuffer sharedBuffer = reader.read(UNRELIABLE_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+							{
+								if (sharedBuffer == null)
+									break;
+								long value = sharedBuffer.getBuffer().getLong();
+								assertTrue(value > lastValue);
+								lastValue = value;
+
+								assertFalse(valueSet.contains(value));
+								valueSet.add(value);
+							}
+						}
+					}
+					else if (readerQoS == QoS.UNRELIABLE_UNORDERED_QOS)
+					{
+						// duplicate test
+						Set<Long> valueSet = new HashSet<Long>(MESSAGES, 1);
+						while (true)
+						{
+							try (SharedBuffer sharedBuffer = reader.read(UNRELIABLE_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+							{
+								if (sharedBuffer == null)
+									break;
+								long value = sharedBuffer.getBuffer().getLong();
+
+								assertFalse(valueSet.contains(value));
+								valueSet.add(value);
+							}
+						}
+					}
+					else
+						throw new RuntimeException("unsupported ReaderQoS[]");
 				}
 			}
 		}
 	}
 
-	private void lossyReliableOrderedCommunication(
+	public void testLossLessReliableOrderedCommunication() throws InterruptedException
+	{
+		lossLessCommunication(QoS.RELIABLE_ORDERED_QOS);
+	}
+
+	public void testLossLessUnReliableOrderedCommunication() throws InterruptedException
+	{
+		lossLessCommunication(QoS.UNRELIABLE_ORDERED_QOS);
+	}
+
+	public void testLossLessUnReliableUnOrderedCommunication() throws InterruptedException
+	{
+		lossLessCommunication(QoS.UNRELIABLE_UNORDERED_QOS);
+	}
+
+	private void lossyCommunication(
 			int id,
 			RTPSParticipant readerParticipant, RTPSParticipant writerParticipant,
-			SeqNoFilter filter, int queueSize) throws InterruptedException
+			SeqNoFilter filter, int queueSize, ReaderQOS[] readerQoS) throws InterruptedException
 	{
 			final int MESSAGE_SIZE = Long.BYTES;
 			final int TIMEOUT_MS = 1000;
+			final int UNRELIABLE_TIMEOUT_MS = 10;
 			
 			for (int readerQueueSize = 1; readerQueueSize <= queueSize; readerQueueSize++)
 			{
@@ -183,7 +244,7 @@ public class RTPSParticipantTest extends TestCase {
 					RTPSReader reader = readerParticipant.createReader(
 							readerQueueSize*1000000 + id, writer.getGUID(), 
 							MESSAGE_SIZE, readerQueueSize,
-							QoS.RELIABLE_ORDERED_QOS, null))
+							readerQoS, null))
 				{
 						
 				ByteBuffer writeBuffer = ByteBuffer.allocate(MESSAGE_SIZE);
@@ -198,25 +259,69 @@ public class RTPSParticipantTest extends TestCase {
 					assertTrue(seqNo != 0);
 				}
 	
-				for (int i = 0; i < queueSize; i++)
+				// NOTE: by ref compare, OK for this test
+				if (readerQoS == QoS.RELIABLE_ORDERED_QOS)
 				{
-					try (SharedBuffer sharedBuffer = reader.read(TIMEOUT_MS, TimeUnit.MILLISECONDS))
+					for (int i = 0; i < queueSize; i++)
 					{
-						assertNotNull(sharedBuffer);
-						assertEquals(i, sharedBuffer.getBuffer().getLong());
+						try (SharedBuffer sharedBuffer = reader.read(TIMEOUT_MS, TimeUnit.MILLISECONDS))
+						{
+							assertNotNull(sharedBuffer);
+							assertEquals(i, sharedBuffer.getBuffer().getLong());
+						}
 					}
 				}
+				else if (readerQoS == QoS.UNRELIABLE_ORDERED_QOS)
+				{
+					// duplicate, order test
+					long lastValue = Long.MIN_VALUE;
+					Set<Long> valueSet = new HashSet<Long>(queueSize, 1);
+					while (true)
+					{
+						try (SharedBuffer sharedBuffer = reader.read(UNRELIABLE_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+						{
+							if (sharedBuffer == null)
+								break;
+							long value = sharedBuffer.getBuffer().getLong();
+							assertTrue(value > lastValue);
+							lastValue = value;
+
+							assertFalse(valueSet.contains(value));
+							valueSet.add(value);
+						}
+					}
+				}
+				else if (readerQoS == QoS.UNRELIABLE_UNORDERED_QOS)
+				{
+					// duplicate test
+					Set<Long> valueSet = new HashSet<Long>(queueSize, 1);
+					while (true)
+					{
+						try (SharedBuffer sharedBuffer = reader.read(UNRELIABLE_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+						{
+							if (sharedBuffer == null)
+								break;
+							long value = sharedBuffer.getBuffer().getLong();
+
+							assertFalse(valueSet.contains(value));
+							valueSet.add(value);
+						}
+					}
+				}
+				else
+					throw new RuntimeException("unsupported ReaderQoS[]");
 			}
 		}
 	}
 
-	private void lossyFragmentedReliableOrderedCommunication(
+	private void lossyFragmentedCommunication(
 			int id,
 			RTPSParticipant readerParticipant, RTPSParticipant writerParticipant,
-			SeqNoFilter filter, int queueSize) throws InterruptedException
+			SeqNoFilter filter, int queueSize, ReaderQOS[] readerQoS) throws InterruptedException
 	{
 			final int MESSAGE_SIZE = 3*Long.BYTES;
 			final int TIMEOUT_MS = 1000;
+			final int UNRELIABLE_TIMEOUT_MS = 10;
 
 			for (int readerQueueSize = 1; readerQueueSize <= queueSize; readerQueueSize++)
 			{
@@ -227,7 +332,7 @@ public class RTPSParticipantTest extends TestCase {
 					RTPSReader reader = readerParticipant.createReader(
 							readerQueueSize*1000000 + id, writer.getGUID(), 
 							MESSAGE_SIZE, readerQueueSize,
-							QoS.RELIABLE_ORDERED_QOS, null))
+							readerQoS, null))
 				{
 						
 				ByteBuffer writeBuffer = ByteBuffer.allocate(MESSAGE_SIZE);
@@ -244,17 +349,63 @@ public class RTPSParticipantTest extends TestCase {
 					assertTrue(seqNo != 0);
 				}
 	
-				for (int i = 0; i < queueSize; i++)
+				// NOTE: by ref compare, OK for this test
+				if (readerQoS == QoS.RELIABLE_ORDERED_QOS)
 				{
-					try (SharedBuffer sharedBuffer = reader.read(TIMEOUT_MS, TimeUnit.MILLISECONDS))
+					for (int i = 0; i < queueSize; i++)
 					{
-						assertNotNull(sharedBuffer);
-						final ByteBuffer buf = sharedBuffer.getBuffer();
-						assertEquals(i, buf.getLong());
-						assertEquals(i, buf.getLong());
-						assertEquals(i, buf.getLong());
+						try (SharedBuffer sharedBuffer = reader.read(TIMEOUT_MS, TimeUnit.MILLISECONDS))
+						{
+							assertNotNull(sharedBuffer);
+							assertEquals(i, sharedBuffer.getBuffer().getLong());
+							assertEquals(i, sharedBuffer.getBuffer().getLong());
+							assertEquals(i, sharedBuffer.getBuffer().getLong());
+						}
 					}
 				}
+				else if (readerQoS == QoS.UNRELIABLE_ORDERED_QOS)
+				{
+					// duplicate, order test
+					long lastValue = Long.MIN_VALUE;
+					Set<Long> valueSet = new HashSet<Long>(queueSize, 1);
+					while (true)
+					{
+						try (SharedBuffer sharedBuffer = reader.read(UNRELIABLE_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+						{
+							if (sharedBuffer == null)
+								break;
+							long value = sharedBuffer.getBuffer().getLong();
+							assertEquals(value, sharedBuffer.getBuffer().getLong());
+							assertEquals(value, sharedBuffer.getBuffer().getLong());
+							assertTrue(value > lastValue);
+							lastValue = value;
+
+							assertFalse(valueSet.contains(value));
+							valueSet.add(value);
+						}
+					}
+				}
+				else if (readerQoS == QoS.UNRELIABLE_UNORDERED_QOS)
+				{
+					// duplicate test
+					Set<Long> valueSet = new HashSet<Long>(queueSize, 1);
+					while (true)
+					{
+						try (SharedBuffer sharedBuffer = reader.read(UNRELIABLE_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+						{
+							if (sharedBuffer == null)
+								break;
+							long value = sharedBuffer.getBuffer().getLong();
+							assertEquals(value, sharedBuffer.getBuffer().getLong());
+							assertEquals(value, sharedBuffer.getBuffer().getLong());
+
+							assertFalse(valueSet.contains(value));
+							valueSet.add(value);
+						}
+					}
+				}
+				else
+					throw new RuntimeException("unsupported ReaderQoS[]");
 			}
 		}
 		
@@ -275,13 +426,11 @@ public class RTPSParticipantTest extends TestCase {
 		
 	}
 	
-	public void testLossyReliableOrderedCommunication() throws InterruptedException {
+	private void lossyCommunicationCombinations(ReaderQOS[] readerQoS, int queueSize) throws InterruptedException {
 		
 		try (RTPSParticipant readerParticipant = new RTPSParticipant(null, 0, 0, false);
 			 RTPSParticipant writerParticipant = new RTPSParticipant(null, 0, 0, true)) {
 			
-			final int queueSize = 11;
-
 			// test all combinations of missing packets
 	
 			List<Long> seqNumbers = new ArrayList<Long>(queueSize);
@@ -299,20 +448,32 @@ public class RTPSParticipantTest extends TestCase {
 					if ((setNumber & (1 << digit)) > 0)
 						set.add(seqNumbers.get(digit));
 				}
-				lossyReliableOrderedCommunication(setNumber, readerParticipant, writerParticipant, new SeqNoFilterImpl(set), queueSize);
+				lossyCommunication(setNumber, readerParticipant, writerParticipant, new SeqNoFilterImpl(set), queueSize, readerQoS);
 			}
 		}
 	}
 
-	public void testFragmentedLossyReliableOrderedCommunication() throws InterruptedException {
+	private static final int TEST_SPEED_UP = 1;
+	
+	public void testLossyReliableOrderedCommunication() throws InterruptedException {
+		lossyCommunicationCombinations(QoS.RELIABLE_ORDERED_QOS, 11-TEST_SPEED_UP);
+	}
+		
+	public void testLossyUnReliableOrderedCommunication() throws InterruptedException {
+		lossyCommunicationCombinations(QoS.UNRELIABLE_ORDERED_QOS, 8-TEST_SPEED_UP);
+	}
+
+	public void testLossyUnReliableUnOrderedCommunication() throws InterruptedException {
+		lossyCommunicationCombinations(QoS.UNRELIABLE_UNORDERED_QOS, 8-TEST_SPEED_UP);
+	}
+
+	private void fragmentedLossyCommunicationCombinations(ReaderQOS[] readerQoS, int queueSize) throws InterruptedException {
 
 		System.getProperties().put("PVDS_MAX_UDP_PACKET_SIZE", "64");
 		
 		try (RTPSParticipant readerParticipant = new RTPSParticipant(null, 0, 0, false);
 			 RTPSParticipant writerParticipant = new RTPSParticipant(null, 0, 0, true)) {
 			
-			final int queueSize = 5;
-
 			// test all combinations of missing packets
 			// we expect 3 packets for a message
 			List<Long> seqNumbers = new ArrayList<Long>(queueSize*3);
@@ -330,13 +491,25 @@ public class RTPSParticipantTest extends TestCase {
 					if ((setNumber & (1 << digit)) > 0)
 						set.add(seqNumbers.get(digit));
 				}
-				lossyFragmentedReliableOrderedCommunication(setNumber, readerParticipant, writerParticipant, new SeqNoFilterImpl(set), queueSize);
+				lossyFragmentedCommunication(setNumber, readerParticipant, writerParticipant, new SeqNoFilterImpl(set), queueSize, readerQoS);
 			}
 		}
 		finally 
 		{
 			System.getProperties().remove("PVDS_MAX_UDP_PACKET_SIZE");
 		}
-		
 	}
+
+	public void testFragmentedLossyReliableOrderedCommunication() throws InterruptedException {
+		fragmentedLossyCommunicationCombinations(QoS.RELIABLE_ORDERED_QOS, 5);
+	}
+		
+	public void testFragmentedLossyUnReliableOrderedCommunication() throws InterruptedException {
+		fragmentedLossyCommunicationCombinations(QoS.UNRELIABLE_ORDERED_QOS, 4);
+	}
+
+	public void testFragmentedLossyUnReliableUnOrderedCommunication() throws InterruptedException {
+		fragmentedLossyCommunicationCombinations(QoS.UNRELIABLE_UNORDERED_QOS, 4);
+	}
+
 }

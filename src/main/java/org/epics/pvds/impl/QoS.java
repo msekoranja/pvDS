@@ -53,4 +53,7 @@ public final class QoS {
 	public static final ReaderQOS[] UNRELIABLE_UNORDERED_QOS = new ReaderQOS[] {
 	};
 
+	public static final ReaderQOS[] UNRELIABLE_ORDERED_QOS = new ReaderQOS[] {
+		QOS_ORDERED
+	};
 }
