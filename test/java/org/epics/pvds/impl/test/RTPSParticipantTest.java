@@ -127,86 +127,44 @@ public class RTPSParticipantTest extends TestCase {
 			 RTPSParticipant writerParticipant = new RTPSParticipant(null, 0, 0, true)) {
 			
 			final int MESSAGE_SIZE = Long.BYTES;
-			final int QUEUE_SIZE = 3;
+			final int MESSAGES = 100;
 			final int TIMEOUT_MS = 1000;
 			
-			RTPSWriter writer = writerParticipant.createWriter(
-					0, MESSAGE_SIZE, QUEUE_SIZE,
-					new QoS.WriterQOS[] { QoS.QOS_ALWAYS_SEND }, null);
-			
-			RTPSReader reader = readerParticipant.createReader(
-					0, writer.getGUID(), 
-					MESSAGE_SIZE, QUEUE_SIZE,
-					QoS.RELIABLE_ORDERED_QOS, null);
-
-			ByteBuffer writeBuffer = ByteBuffer.allocate(MESSAGE_SIZE);
-			
-			for (int i = 0; i < QUEUE_SIZE; i++)
+			for (int readerQueueSize = 1; readerQueueSize <= MESSAGES; readerQueueSize++)
 			{
-				writeBuffer.clear();
-				writeBuffer.putLong(i);
-				writeBuffer.flip();
-				
-				long seqNo = writer.write(writeBuffer);
-				assertTrue(seqNo != 0);
-			}
-
-			for (int i = 0; i < QUEUE_SIZE; i++)
-			{
-				try (SharedBuffer sharedBuffer = reader.read(TIMEOUT_MS, TimeUnit.MILLISECONDS))
+				try (RTPSWriter writer = writerParticipant.createWriter(
+						readerQueueSize, MESSAGE_SIZE, MESSAGES,
+						new QoS.WriterQOS[] { QoS.QOS_ALWAYS_SEND }, null);
+	
+					RTPSReader reader = readerParticipant.createReader(
+							readerQueueSize, writer.getGUID(), 
+							MESSAGE_SIZE, readerQueueSize,
+							QoS.RELIABLE_ORDERED_QOS, null))
 				{
-					assertNotNull(sharedBuffer);
-					assertEquals(i, sharedBuffer.getBuffer().getLong());
+					ByteBuffer writeBuffer = ByteBuffer.allocate(MESSAGE_SIZE);
+					
+					for (int i = 0; i < MESSAGES; i++)
+					{
+						writeBuffer.clear();
+						writeBuffer.putLong(i);
+						writeBuffer.flip();
+						
+						long seqNo = writer.write(writeBuffer);
+						assertTrue(seqNo != 0);
+					}
+		
+					for (int i = 0; i < MESSAGES; i++)
+					{
+						try (SharedBuffer sharedBuffer = reader.read(TIMEOUT_MS, TimeUnit.MILLISECONDS))
+						{
+							assertNotNull(sharedBuffer);
+							assertEquals(i, sharedBuffer.getBuffer().getLong());
+						}
+					}
 				}
 			}
 		}
 	}
-
-	/*
-	private void lossyReliableOrderedCommunication(SeqNoFilter filter, int queueSize) throws InterruptedException
-	{
-		try (RTPSParticipant readerParticipant = new RTPSParticipant(null, 0, false);
-			 RTPSParticipant writerParticipant = new RTPSParticipant(null, 0, true)) {
-			
-			readerParticipant.start();
-			writerParticipant.start();
-			
-			final int MESSAGE_SIZE = Long.BYTES;
-			final int TIMEOUT_MS = 1000;
-			
-			RTPSWriter writer = writerParticipant.createWriter(
-					0, MESSAGE_SIZE, queueSize,
-					new QoS.WriterQOS[] { QoS.QOS_ALWAYS_SEND, new QoS.QOS_SEND_SEQNO_FILTER(filter) }, null);
-			
-			RTPSReader reader = readerParticipant.createReader(
-					0, writer.getGUID(), 
-					MESSAGE_SIZE, queueSize,
-					QoS.RELIABLE_ORDERED_QOS, null);
-
-			ByteBuffer writeBuffer = ByteBuffer.allocate(MESSAGE_SIZE);
-			
-			for (int i = 0; i < queueSize; i++)
-			{
-				writeBuffer.clear();
-				writeBuffer.putLong(i);
-				writeBuffer.flip();
-				
-				long seqNo = writer.send(writeBuffer);
-				assertTrue(seqNo != 0);
-			}
-
-			for (int i = 0; i < queueSize; i++)
-			{
-				try (SharedBuffer sharedBuffer = reader.waitForNewData(TIMEOUT_MS))
-				{
-					System.out.println("checking for: " + i);
-					assertNotNull(sharedBuffer);
-					assertEquals(i, sharedBuffer.getBuffer().getLong());
-				}
-			}
-		}
-	}
-	*/
 
 	private void lossyReliableOrderedCommunication(
 			int id,
@@ -216,34 +174,37 @@ public class RTPSParticipantTest extends TestCase {
 			final int MESSAGE_SIZE = Long.BYTES;
 			final int TIMEOUT_MS = 1000;
 			
-			try (
-				RTPSWriter writer = writerParticipant.createWriter(
-						id, MESSAGE_SIZE, queueSize,
-						new QoS.WriterQOS[] { QoS.QOS_ALWAYS_SEND, new QoS.QOS_SEND_SEQNO_FILTER(filter) }, null);
-				RTPSReader reader = readerParticipant.createReader(
-						id, writer.getGUID(), 
-						MESSAGE_SIZE, queueSize,
-						QoS.RELIABLE_ORDERED_QOS, null))
+			for (int readerQueueSize = 1; readerQueueSize <= queueSize; readerQueueSize++)
 			{
-					
-			ByteBuffer writeBuffer = ByteBuffer.allocate(MESSAGE_SIZE);
-			
-			for (int i = 0; i < queueSize; i++)
-			{
-				writeBuffer.clear();
-				writeBuffer.putLong(i);
-				writeBuffer.flip();
-				
-				long seqNo = writer.write(writeBuffer);
-				assertTrue(seqNo != 0);
-			}
-
-			for (int i = 0; i < queueSize; i++)
-			{
-				try (SharedBuffer sharedBuffer = reader.read(TIMEOUT_MS, TimeUnit.MILLISECONDS))
+				try (
+					RTPSWriter writer = writerParticipant.createWriter(
+							readerQueueSize*1000000 + id, MESSAGE_SIZE, queueSize,
+							new QoS.WriterQOS[] { QoS.QOS_ALWAYS_SEND, new QoS.QOS_SEND_SEQNO_FILTER(filter) }, null);
+					RTPSReader reader = readerParticipant.createReader(
+							readerQueueSize*1000000 + id, writer.getGUID(), 
+							MESSAGE_SIZE, readerQueueSize,
+							QoS.RELIABLE_ORDERED_QOS, null))
 				{
-					assertNotNull(sharedBuffer);
-					assertEquals(i, sharedBuffer.getBuffer().getLong());
+						
+				ByteBuffer writeBuffer = ByteBuffer.allocate(MESSAGE_SIZE);
+				
+				for (int i = 0; i < queueSize; i++)
+				{
+					writeBuffer.clear();
+					writeBuffer.putLong(i);
+					writeBuffer.flip();
+					
+					long seqNo = writer.write(writeBuffer);
+					assertTrue(seqNo != 0);
+				}
+	
+				for (int i = 0; i < queueSize; i++)
+				{
+					try (SharedBuffer sharedBuffer = reader.read(TIMEOUT_MS, TimeUnit.MILLISECONDS))
+					{
+						assertNotNull(sharedBuffer);
+						assertEquals(i, sharedBuffer.getBuffer().getLong());
+					}
 				}
 			}
 		}
@@ -257,39 +218,42 @@ public class RTPSParticipantTest extends TestCase {
 			final int MESSAGE_SIZE = 3*Long.BYTES;
 			final int TIMEOUT_MS = 1000;
 
-			try (
-				RTPSWriter writer = writerParticipant.createWriter(
-						id, MESSAGE_SIZE, queueSize,
-						new QoS.WriterQOS[] { QoS.QOS_ALWAYS_SEND, new QoS.QOS_SEND_SEQNO_FILTER(filter) }, null);
-				RTPSReader reader = readerParticipant.createReader(
-						id, writer.getGUID(), 
-						MESSAGE_SIZE, queueSize,
-						QoS.RELIABLE_ORDERED_QOS, null))
+			for (int readerQueueSize = 1; readerQueueSize <= queueSize; readerQueueSize++)
 			{
-					
-			ByteBuffer writeBuffer = ByteBuffer.allocate(MESSAGE_SIZE);
-			
-			for (int i = 0; i < queueSize; i++)
-			{
-				writeBuffer.clear();
-				writeBuffer.putLong(i);
-				writeBuffer.putLong(i);
-				writeBuffer.putLong(i);
-				writeBuffer.flip();
-				
-				long seqNo = writer.write(writeBuffer);
-				assertTrue(seqNo != 0);
-			}
-
-			for (int i = 0; i < queueSize; i++)
-			{
-				try (SharedBuffer sharedBuffer = reader.read(TIMEOUT_MS, TimeUnit.MILLISECONDS))
+				try (
+					RTPSWriter writer = writerParticipant.createWriter(
+							readerQueueSize*1000000 + id, MESSAGE_SIZE, queueSize,
+							new QoS.WriterQOS[] { QoS.QOS_ALWAYS_SEND, new QoS.QOS_SEND_SEQNO_FILTER(filter) }, null);
+					RTPSReader reader = readerParticipant.createReader(
+							readerQueueSize*1000000 + id, writer.getGUID(), 
+							MESSAGE_SIZE, readerQueueSize,
+							QoS.RELIABLE_ORDERED_QOS, null))
 				{
-					assertNotNull(sharedBuffer);
-					final ByteBuffer buf = sharedBuffer.getBuffer();
-					assertEquals(i, buf.getLong());
-					assertEquals(i, buf.getLong());
-					assertEquals(i, buf.getLong());
+						
+				ByteBuffer writeBuffer = ByteBuffer.allocate(MESSAGE_SIZE);
+				
+				for (int i = 0; i < queueSize; i++)
+				{
+					writeBuffer.clear();
+					writeBuffer.putLong(i);
+					writeBuffer.putLong(i);
+					writeBuffer.putLong(i);
+					writeBuffer.flip();
+					
+					long seqNo = writer.write(writeBuffer);
+					assertTrue(seqNo != 0);
+				}
+	
+				for (int i = 0; i < queueSize; i++)
+				{
+					try (SharedBuffer sharedBuffer = reader.read(TIMEOUT_MS, TimeUnit.MILLISECONDS))
+					{
+						assertNotNull(sharedBuffer);
+						final ByteBuffer buf = sharedBuffer.getBuffer();
+						assertEquals(i, buf.getLong());
+						assertEquals(i, buf.getLong());
+						assertEquals(i, buf.getLong());
+					}
 				}
 			}
 		}
