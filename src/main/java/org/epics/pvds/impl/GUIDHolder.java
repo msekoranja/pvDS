@@ -55,7 +55,7 @@ public class GUIDHolder
 	}
 
 	@Override
-	protected Object clone() throws CloneNotSupportedException
+	public Object clone() throws CloneNotSupportedException
 	{
 		GUIDHolder o = new GUIDHolder();
 		o.p1 = p1;
