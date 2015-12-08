@@ -12,6 +12,8 @@ public final class QoS {
 
 	public static final ReaderQOS QOS_ORDERED = new ReaderQOS() {};
 
+	public static final ReaderQOS QOS_HB_DONT_IGNORE_BUFFERED = new ReaderQOS() {};
+
 	public static class QOS_LIMIT_READERS implements WriterQOS {
 		public final int limit;
 		public QOS_LIMIT_READERS(int limit)

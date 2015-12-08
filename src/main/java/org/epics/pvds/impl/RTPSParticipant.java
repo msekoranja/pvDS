@@ -15,6 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Logger;
 
 import org.epics.pvds.Protocol;
@@ -579,4 +580,17 @@ public class RTPSParticipant extends RTPSEndPoint implements AutoCloseable
 	}
 	*/
 	
+    public static interface WriteInterceptor {
+    	void send(DatagramChannel channel, ByteBuffer buffer, SocketAddress sendAddress) throws IOException;
+    }
+
+    private final AtomicReference<WriteInterceptor> writeInterceptor = new AtomicReference<WriteInterceptor>();
+   
+    public WriteInterceptor getWriteInterceptor() {
+    	return writeInterceptor.get();
+    }
+
+    public void setWriteInterceptor(WriteInterceptor interceptor) {
+    	writeInterceptor.set(interceptor);
+    }
 }

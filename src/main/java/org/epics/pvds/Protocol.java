@@ -146,7 +146,19 @@ public final class Protocol {
 			return new EntityId(participantId,
 					(byte)(ENTITYKIND_BUILDIN_MASK | ENTITYKIND_PARTICIPANT_MASK));
 		}
-		
+
+		@Override
+		public int hashCode() {
+			return value;
+		}
+
+		@Override
+		public boolean equals(Object obj) {
+			if (obj instanceof EntityId)
+				return ((EntityId)obj).value == value;
+			else
+				return false;
+		}
 	}
 	
 	public static class GUID
@@ -194,15 +206,25 @@ public final class Protocol {
 				prefix[i] = (byte)Integer.parseInt(str.substring(i*2,i*2+2), 16);
 			//	prefix[11 - i] = (byte)Integer.parseInt(str.substring(i*2,i*2+2), 16);
 			
-			byte b1 = (byte)Integer.parseInt(str.substring(24, 26), 16);
-			byte b2 = (byte)Integer.parseInt(str.substring(26, 28), 16);
-			byte b3 = (byte)Integer.parseInt(str.substring(28, 30), 16);
-			byte b4 = (byte)Integer.parseInt(str.substring(30, 32), 16);
+			int b1 = (int)Integer.parseInt(str.substring(24, 26), 16);
+			int b2 = (int)Integer.parseInt(str.substring(26, 28), 16);
+			int b3 = (int)Integer.parseInt(str.substring(28, 30), 16);
+			int b4 = (int)Integer.parseInt(str.substring(30, 32), 16);
 			int entityValue = b1 << 24 | b2 << 16 | b3 << 8 | b4;
 			
 			return new GUID(new GUIDPrefix(prefix), new EntityId(entityValue));
 		}
 		
+		@Override
+		public boolean equals(Object obj) {
+			if (obj instanceof GUID)
+			{
+				GUID g = (GUID)obj;
+				return g.prefix.equals(prefix) && g.entityId.equals(entityId);
+			}
+			else
+				return false;
+		}
 	}
 	
 	// max UDP payload 65507 bytes for IPv4 and 65487 bytes for IPv6

@@ -76,6 +76,9 @@ public class RTPSReader implements PeriodicTimerCallback, AutoCloseable
     private final static boolean ORDERED_DEFAULT = false;
     private final boolean ordered;
     
+    private final static boolean HB_DONT_IGNORE_BUFFERED = false;
+    private final boolean hbDoNotIgnoreBuffered;
+
     private final RTPSReaderListener listener;
     
     public RTPSReader(RTPSParticipant participant,
@@ -127,6 +130,7 @@ public class RTPSReader implements PeriodicTimerCallback, AutoCloseable
 		
 	    boolean reliable = RELIABLE_DEFAULT;
 	    boolean ordered = ORDERED_DEFAULT;
+	    boolean hbIgnoreBuffered = HB_DONT_IGNORE_BUFFERED;
 		if (qos != null)
 		{
 			for (QoS.ReaderQOS rq : qos)
@@ -139,6 +143,10 @@ public class RTPSReader implements PeriodicTimerCallback, AutoCloseable
 				{
 					ordered = true;
 				}
+				else if (rq == QoS.QOS_HB_DONT_IGNORE_BUFFERED)
+				{
+					hbIgnoreBuffered = true;
+				}
 				else 
 				{
 					logger.warning(() -> "Unsupported reader QoS: " + rq);
@@ -147,6 +155,7 @@ public class RTPSReader implements PeriodicTimerCallback, AutoCloseable
 		}
 		this.reliable = reliable;
 		this.ordered = ordered;
+		this.hbDoNotIgnoreBuffered = hbIgnoreBuffered;
 		
 		///
 		/// allocate and initialize buffer(s)
@@ -880,9 +889,31 @@ public class RTPSReader implements PeriodicTimerCallback, AutoCloseable
 
 			if (maxReceivedSequenceNumber == 0)
 			{
-				// at start we accept only fresh (seqNo >= lastSN) sequences 
-				ignoreSequenceNumbersPrior = lastSN + 1;
-				
+				if (hbDoNotIgnoreBuffered)
+				{
+					// TODO not a nice thing, HB (null) sends 1->1
+					// which is theoretically wrong and requesting for 1 will cause problems
+					if (firstSN == 1) firstSN++;
+					
+					ignoreSequenceNumbersPrior = firstSN;
+					if (reliable)
+					{
+						// add new available (from firstSN on) missed sequence numbers
+						for (long sn = firstSN; sn <= lastSN; sn++)
+							if (missingSequenceNumbers.add(sn))
+								newMissingSN++;
+						stats.missedSN += newMissingSN;
+					}
+					// sendAckNack = true;
+				}
+				else
+				{
+					// at start we accept only fresh (seqNo >= lastSN) sequences 
+					// why: not to start w/ big lag already at start
+					ignoreSequenceNumbersPrior = lastSN + 1;
+				}
+
+
 				/*
 				// NOTE: condition below works only if data messages are always multicasted, i.e. no unicast optimisation
 				// do not send ackNack here, first received non-fragmented message will ACK it,
@@ -1084,6 +1115,10 @@ public class RTPSReader implements PeriodicTimerCallback, AutoCloseable
     	}
     }
     
+    /**
+     * Read data.
+     * @return <code>null</code> if there is no data available.
+     */
     public SharedBuffer read()
     {
     	return newDataQueue.poll();

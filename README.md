@@ -1,4 +1,6 @@
 [![Build Status](https://travis-ci.org/msekoranja/pvDS.svg?branch=master)](https://travis-ci.org/msekoranja/pvDS)
+[![Coverity Scan Build Status](https://scan.coverity.com/projects/7195/badge.svg)](https://scan.coverity.com/projects/msekoranja-pvds)
+[![Code Coverage](https://img.shields.io/codecov/c/github/msekoranja/pvDS/coverity_scan.svg)](https://codecov.io/github/msekoranja/pvDS?branch=coverity_scan)
 
 # pvDS
 Process Variable Distribution System - high-throughput reliable multicast protocol
