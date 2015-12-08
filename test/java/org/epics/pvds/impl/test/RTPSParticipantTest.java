@@ -610,12 +610,13 @@ public class RTPSParticipantTest extends TestCase {
 
 	private static class WriteInterceptorImpl implements WriteInterceptor
 	{
-		enum Mode { DROP, STORE, SEND };
+		enum Mode { DROP, STORE, STORE_DROP_EVERY_SECOND, SEND };
 		volatile Mode mode = Mode.SEND;
 		final ArrayList<ByteBuffer> queue = new ArrayList<ByteBuffer>();
 		
 		volatile DatagramChannel channel;
 		volatile SocketAddress sendAddress;
+		int messageCount = 0;
 		
 		private static ByteBuffer deepCopy(final ByteBuffer original) {
 
@@ -632,6 +633,8 @@ public class RTPSParticipantTest extends TestCase {
 		public void send(DatagramChannel channel, ByteBuffer buffer,
 				SocketAddress sendAddress) throws IOException {
 			
+			messageCount++;
+			
 			// save first
 			if (this.channel == null)
 				this.channel = channel;
@@ -645,6 +648,12 @@ public class RTPSParticipantTest extends TestCase {
 				break;
 			case STORE:
 				queue.add(deepCopy(buffer));
+				break;
+			case STORE_DROP_EVERY_SECOND:
+				if (messageCount % 2 == 0)
+					queue.add(deepCopy(buffer));
+				else
+					buffer.position(buffer.limit());
 				break;
 			case SEND:
 			    while (buffer.hasRemaining())
@@ -678,7 +687,7 @@ public class RTPSParticipantTest extends TestCase {
 
 	}
 	
-	private void lossLessUnorderedCommunication(ReaderQOS[] readerQoS, int queueSize) throws InterruptedException, IOException
+	private void lossLessUnorderedCommunication(ReaderQOS[] readerQoS, int queueSize, boolean dropEverySecond) throws InterruptedException, IOException
 	{
 		try (RTPSParticipant readerParticipant = new RTPSParticipant(null, 0, 0, false);
 			 RTPSParticipant writerParticipant = new RTPSParticipant(null, 0, 0, true)) {
@@ -699,7 +708,7 @@ public class RTPSParticipantTest extends TestCase {
 				{
 					ByteBuffer writeBuffer = ByteBuffer.allocate(MESSAGE_SIZE);
 					
-					interceptor.mode = WriteInterceptorImpl.Mode.STORE;
+					interceptor.mode = dropEverySecond ? WriteInterceptorImpl.Mode.STORE_DROP_EVERY_SECOND : WriteInterceptorImpl.Mode.STORE;
 					
 					for (int i = 0; i < MESSAGES; i++)
 					{
@@ -713,7 +722,9 @@ public class RTPSParticipantTest extends TestCase {
 
 					// wait until all messages are sent and some HBs
 					// NOTE: might require more HBs if MESSAGES count is bigger (because of "per message HBs")
-					final int requiredMessages = (MESSAGES + 2); // + 2 HBs
+					int requiredMessages = (MESSAGES + 2); // + 2 HBs
+					if (dropEverySecond)
+						requiredMessages = (requiredMessages + 1)/2;
 			    	while (interceptor.queue.size() <= requiredMessages)
 			    		Thread.yield();
 			    	while (interceptor.queue.size() > requiredMessages)
@@ -735,7 +746,6 @@ public class RTPSParticipantTest extends TestCase {
 									MESSAGE_SIZE, readerQueueSize,
 									fixedReaderQOS.toArray(new ReaderQOS[fixedReaderQOS.size()]), null))
 						{
-			
 							ByteBuffer[] b = p.next();
 //							interceptor.flush(writerParticipant.getUnicastChannel(), new InetSocketAddress(readerParticipant.getMulticastGroup(), readerParticipant.getMulticastPort()), b);
 							interceptor.flush(writerParticipant.getUnicastChannel(), readerParticipant.getUnicastChannel().getLocalAddress(), b);
@@ -804,17 +814,31 @@ public class RTPSParticipantTest extends TestCase {
 
 	public void testLossLessUnorderedReliableOrderedCommunication() throws InterruptedException, IOException
 	{
-		lossLessUnorderedCommunication(QoS.RELIABLE_ORDERED_QOS, 5);
+		lossLessUnorderedCommunication(QoS.RELIABLE_ORDERED_QOS, 5, false);
 	}
 
 	public void testLossLessUnorderedUnReliableOrderedCommunication() throws InterruptedException, IOException
 	{
-		lossLessUnorderedCommunication(QoS.UNRELIABLE_ORDERED_QOS, 4);
+		lossLessUnorderedCommunication(QoS.UNRELIABLE_ORDERED_QOS, 4, false);
 	}
 
 	public void testLossLessUnorderedUnReliableUnOrderedCommunication() throws InterruptedException, IOException
 	{
-		lossLessUnorderedCommunication(QoS.UNRELIABLE_UNORDERED_QOS, 4);
+		lossLessUnorderedCommunication(QoS.UNRELIABLE_UNORDERED_QOS, 4, false);
 	}
 	
+	public void testLossyUnorderedReliableOrderedCommunication() throws InterruptedException, IOException
+	{
+		lossLessUnorderedCommunication(QoS.RELIABLE_ORDERED_QOS, 5, true);
+	}
+
+	public void testLossyUnorderedUnReliableOrderedCommunication() throws InterruptedException, IOException
+	{
+		lossLessUnorderedCommunication(QoS.UNRELIABLE_ORDERED_QOS, 4, true);
+	}
+
+	public void testLossyUnorderedUnReliableUnOrderedCommunication() throws InterruptedException, IOException
+	{
+		lossLessUnorderedCommunication(QoS.UNRELIABLE_UNORDERED_QOS, 4, true);
+	}
 }

@@ -891,7 +891,20 @@ public class RTPSReader implements PeriodicTimerCallback, AutoCloseable
 			{
 				if (hbDoNotIgnoreBuffered)
 				{
+					// TODO not a nice thing, HB (null) sends 1->1
+					// which is theoretically wrong and requesting for 1 will cause problems
+					if (firstSN == 1) firstSN++;
+					
 					ignoreSequenceNumbersPrior = firstSN;
+					if (reliable)
+					{
+						// add new available (from firstSN on) missed sequence numbers
+						for (long sn = firstSN; sn <= lastSN; sn++)
+							if (missingSequenceNumbers.add(sn))
+								newMissingSN++;
+						stats.missedSN += newMissingSN;
+					}
+					// sendAckNack = true;
 				}
 				else
 				{
