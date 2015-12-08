@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import junit.framework.TestCase;
@@ -28,6 +29,7 @@ import org.epics.pvds.impl.RTPSParticipant;
 import org.epics.pvds.impl.RTPSParticipant.WriteInterceptor;
 import org.epics.pvds.impl.RTPSReader;
 import org.epics.pvds.impl.RTPSReader.SharedBuffer;
+import org.epics.pvds.impl.RTPSReaderListener;
 import org.epics.pvds.impl.RTPSWriter.ReaderEntry;
 import org.epics.pvds.impl.GUIDHolder;
 import org.epics.pvds.impl.RTPSWriter;
@@ -239,10 +241,120 @@ public class RTPSParticipantTest extends TestCase {
 				// 0 indicates no reader
 				assertEquals(0, seqNo);
 				
+				// immediate ACK on seqNo == 0
+				long t1 = System.currentTimeMillis();
+				assertTrue(writer.waitUntilAcked(0, 10000));
+				long t2 = System.currentTimeMillis();
+				assertTrue((t2-t1) < 3000);
+				
+				// immediate ACK on no readers
+				t1 = System.currentTimeMillis();
+				assertTrue(writer.waitUntilAcked(1000, 10000));
+				t2 = System.currentTimeMillis();
+				assertTrue((t2-t1) < 3000);
 			}
 		}
 	}
 	
+	public void testReader() throws InterruptedException {
+		try (RTPSParticipant participant = new RTPSParticipant(null, 0, 0, false);
+			 RTPSParticipant writerParticipant = new RTPSParticipant(null, 0, 0, true);
+		     RTPSWriter writer = writerParticipant.createWriter(0, 8, 1, null, null))
+		{
+			// write some data, this must be ignored anyway
+			ByteBuffer buffer = ByteBuffer.allocate(16);
+			buffer.putDouble(12.8);
+			buffer.flip();
+			writer.write(buffer);
+			writer.waitUntilFlushed();
+			
+			try
+			{
+				participant.createReader(0, writer.getGUID(), 0, 0);
+				fail("maxMessageSize too small accepted");
+			} 
+			catch (IllegalArgumentException iae) {
+				// OK
+			}
+	
+			try
+			{
+				participant.createReader(0, writer.getGUID(), 8, 0);
+				fail("maxQueueSize <= 0 accepted");
+			} 
+			catch (IllegalArgumentException iae) {
+				// OK
+			}
+			
+			QoS.ReaderQOS unsupportedQoS = new QoS.ReaderQOS() {};
+			RTPSReader r = participant.createReader(0, writer.getGUID(), 8, 1, new QoS.ReaderQOS[] { unsupportedQoS }, null);
+			// no fail, just warning log
+			r.close();
+			
+			final AtomicBoolean writerPresent = new AtomicBoolean();
+			final ResettableLatch notification = new ResettableLatch(1);
+			RTPSReaderListener listener = new RTPSReaderListener() {
+				
+				@Override
+				public void writerPresent() {
+					writerPresent.set(true);
+					notification.countDown();
+				}
+				
+				@Override
+				public void writerAbsent() {
+					writerPresent.set(false);
+					notification.countDown();
+				}
+				
+				@Override
+				public void missedSequencesNotify(long start, long end) {
+					// TODO test
+				}
+			};
+			
+			try (RTPSReader reader = participant.createReader(0, writer.getGUID(), 8, 1, QoS.RELIABLE_ORDERED_QOS, listener))
+			{
+				notification.await(15000, TimeUnit.MILLISECONDS);
+				
+				// check notification
+				assertTrue(writerPresent.get());
+
+				
+				
+				// no data, must miss already sent data
+				assertTrue(reader.isEmpty());
+				assertNull(reader.read());
+
+				// TODO wait for reader, possible live-loop in case of a bug
+				while (writer.getReaderCount() == 0)
+					Thread.sleep(100);
+				
+				// write some data
+				buffer.clear();
+				buffer.putDouble(12.8);
+				buffer.flip();
+				writer.write(buffer);
+				writer.waitUntilFlushed();
+			
+				// we dare to test read w/o timeout here
+				try (SharedBuffer sharedBuffer = reader.read(3000, TimeUnit.MILLISECONDS))
+				{
+					assertNotNull(sharedBuffer);
+				}
+				
+				// close the writer
+				notification.reset(1);
+				writer.close();
+	
+				notification.await(15000, TimeUnit.MILLISECONDS);
+				
+				// check notification
+				assertTrue(!writerPresent.get());
+			}
+		}
+	}
+		
 	private void lossLessCommunication(ReaderQOS[] readerQoS) throws InterruptedException
 	{
 		try (RTPSParticipant readerParticipant = new RTPSParticipant(null, 0, 0, false);

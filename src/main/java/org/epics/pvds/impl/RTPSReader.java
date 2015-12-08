@@ -1115,6 +1115,10 @@ public class RTPSReader implements PeriodicTimerCallback, AutoCloseable
     	}
     }
     
+    /**
+     * Read data.
+     * @return <code>null</code> if there is no data available.
+     */
     public SharedBuffer read()
     {
     	return newDataQueue.poll();
