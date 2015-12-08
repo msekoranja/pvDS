@@ -30,6 +30,8 @@ import org.epics.pvds.impl.RTPSReader;
 import org.epics.pvds.impl.RTPSReader.SharedBuffer;
 import org.epics.pvds.impl.RTPSWriter;
 
+import com.sun.xml.internal.fastinfoset.util.FixedEntryStringIntMap;
+
 public class RTPSParticipantTest extends TestCase {
 
 	public void testConstruction()
@@ -679,13 +681,13 @@ public class RTPSParticipantTest extends TestCase {
 
 	}
 	
-	private void lossLessUnorderedCommunication(ReaderQOS[] readerQoS) throws InterruptedException, IOException
+	private void lossLessUnorderedCommunication(ReaderQOS[] readerQoS, int queueSize) throws InterruptedException, IOException
 	{
 		try (RTPSParticipant readerParticipant = new RTPSParticipant(null, 0, 0, false);
 			 RTPSParticipant writerParticipant = new RTPSParticipant(null, 0, 0, true)) {
 			
 			final int MESSAGE_SIZE = Long.BYTES;
-			final int MESSAGES = 5;
+			final int MESSAGES = queueSize;
 			final int TIMEOUT_MS = 1000;
 			final int UNRELIABLE_TIMEOUT_MS = 10;
 
@@ -720,22 +722,23 @@ public class RTPSParticipantTest extends TestCase {
 			    	while (interceptor.queue.size() > requiredMessages)
 			    		interceptor.queue.remove(interceptor.queue.size()-1);
 		
-	//				interceptor.mode = WriteInterceptorImpl.Mode.SEND;
-					interceptor.mode = WriteInterceptorImpl.Mode.DROP;
+					interceptor.mode = WriteInterceptorImpl.Mode.SEND;
 
 					ByteBuffer[] ob = interceptor.queue.toArray(new ByteBuffer[interceptor.queue.size()]);
-					for (Permutations<ByteBuffer> p = new Permutations<ByteBuffer>(ob, 1);
+					for (Permutations<ByteBuffer> p = new Permutations<ByteBuffer>(ob, 0);
 						 p.hasNext();
 					)
 					{
-						Thread.sleep(1);
+						ArrayList<ReaderQOS> fixedReaderQOS = new ArrayList<ReaderQOS>(readerQoS.length + 1);
+						fixedReaderQOS.addAll(Arrays.asList(readerQoS));
+						fixedReaderQOS.add(QoS.QOS_HB_DONT_IGNORE_BUFFERED);
 						try (
 							RTPSReader reader = readerParticipant.createReader(
 									0, writer.getGUID(), 
 									MESSAGE_SIZE, readerQueueSize,
-									readerQoS, null))
+									fixedReaderQOS.toArray(new ReaderQOS[fixedReaderQOS.size()]), null))
 						{
-			System.out.println("take ----------------------- ");			
+			
 							ByteBuffer[] b = p.next();
 //							interceptor.flush(writerParticipant.getUnicastChannel(), new InetSocketAddress(readerParticipant.getMulticastGroup(), readerParticipant.getMulticastPort()), b);
 							interceptor.flush(writerParticipant.getUnicastChannel(), readerParticipant.getUnicastChannel().getLocalAddress(), b);
@@ -748,7 +751,11 @@ public class RTPSParticipantTest extends TestCase {
 									try (SharedBuffer sharedBuffer = reader.read(TIMEOUT_MS, TimeUnit.MILLISECONDS))
 									{
 										assertNotNull(sharedBuffer);
-										assertEquals(i, sharedBuffer.getBuffer().getLong());
+										long v = sharedBuffer.getBuffer().getLong();
+										if (i == 0 && v != i)
+											i = (int)v;		// first N messages can be missed
+										else
+											assertEquals(i, v);
 									}
 								}
 							}
@@ -800,7 +807,17 @@ public class RTPSParticipantTest extends TestCase {
 
 	public void testLossLessUnorderedReliableOrderedCommunication() throws InterruptedException, IOException
 	{
-		lossLessUnorderedCommunication(QoS.RELIABLE_ORDERED_QOS);
+		lossLessUnorderedCommunication(QoS.RELIABLE_ORDERED_QOS, 5);
+	}
+
+	public void testLossLessUnorderedUnReliableOrderedCommunication() throws InterruptedException, IOException
+	{
+		lossLessUnorderedCommunication(QoS.UNRELIABLE_ORDERED_QOS, 4);
+	}
+
+	public void testLossLessUnorderedUnReliableUnOrderedCommunication() throws InterruptedException, IOException
+	{
+		lossLessUnorderedCommunication(QoS.UNRELIABLE_UNORDERED_QOS, 4);
 	}
 	
 }
