@@ -22,6 +22,9 @@ import org.epics.pvds.Protocol;
 import org.epics.pvds.Protocol.EntityId;
 import org.epics.pvds.Protocol.GUID;
 import org.epics.pvds.Protocol.GUIDPrefix;
+import org.epics.pvds.Protocol.ProtocolId;
+import org.epics.pvds.Protocol.ProtocolVersion;
+import org.epics.pvds.Protocol.VendorId;
 import org.epics.pvds.impl.QoS;
 import org.epics.pvds.impl.QoS.QOS_SEND_SEQNO_FILTER.SeqNoFilter;
 import org.epics.pvds.impl.QoS.ReaderQOS;
@@ -76,17 +79,88 @@ public class RTPSParticipantTest extends TestCase {
 			// OK
 		}
 
+		try
+		{
+			new RTPSParticipant(null, null, 0, 0, true);
+			fail("null GUIDPrefix accepted");
+		} 
+		catch (IllegalArgumentException iae) {
+			// OK
+		}
+
+		try
+		{
+			new RTPSParticipant("invalid", 0, 0, true);
+			fail("invalid NIF name accepted");
+		} 
+		catch (RuntimeException re) {
+			// OK
+		}
+
 		try (RTPSParticipant p1 = new RTPSParticipant(null, 0, 0, true);
-				RTPSParticipant p2 = new RTPSParticipant(null, 0, 0, true)) {
+				RTPSParticipant p2 = new RTPSParticipant(null, 0, 0, false)) {
 			assertNotNull(p1.getGUIDPrefix());
 			assertNotNull(p2.getGUIDPrefix());
 			assertSame(p1.getGUIDPrefix(), p1.getGUIDPrefix());
 			assertSame(p2.getGUIDPrefix(), p2.getGUIDPrefix());
 			assertFalse(p1.getGUIDPrefix().equals(p2.getGUIDPrefix()));
+			assertNull(p1.getMulticastChannel());
+			assertNotNull(p2.getMulticastChannel());
 		}
 
 	}
 
+	public void testMessageProcessing() throws IOException
+	{
+		try (RTPSParticipant p1 = new RTPSParticipant(null, 0, 0, true))
+		{
+			ByteBuffer buffer = ByteBuffer.allocate(128);
+			
+			buffer.putInt(12);
+			buffer.flip();
+			p1.processMessage(null, buffer);
+			assertEquals(1, p1.getStatistics().messageToSmall);
+			
+			buffer.clear();
+			for (int i = 0; i < Protocol.RTPS_HEADER_SIZE; i++) buffer.put((byte)i);
+			buffer.flip();
+			p1.processMessage(null, buffer);
+			assertEquals(1, p1.getStatistics().nonRTPSMessage);
+			
+			buffer.clear();
+			final long HEADER_NO_GUID_OLD_VERSION =
+					(long)ProtocolId.PVDS_VALUE << 32 |
+					0x0200 << 16 |
+					VendorId.PVDS_VENDORID;
+			buffer.putLong(HEADER_NO_GUID_OLD_VERSION);
+			buffer.put(new GUIDPrefix().value);
+			buffer.flip();
+			p1.processMessage(null, buffer);
+			assertEquals(1, p1.getStatistics().versionMismatch);
+
+			buffer.clear();
+			final long HEADER_NO_GUID_DIFFERENT_VENDOR =
+					(long)ProtocolId.PVDS_VALUE << 32 |
+					ProtocolVersion.PROTOCOLVERSION_2_1 << 16 |
+					VendorId.VENDORID_UNKNOWN;
+			buffer.putLong(HEADER_NO_GUID_DIFFERENT_VENDOR);
+			buffer.put(new GUIDPrefix().value);
+			buffer.flip();
+			p1.processMessage(null, buffer);
+			assertEquals(1, p1.getStatistics().vendorMismatch);
+			
+			buffer.clear();
+			buffer.putLong(Protocol.HEADER_NO_GUID);
+			buffer.put(new GUIDPrefix().value);
+			buffer.put((byte)0);
+			buffer.flip();
+			p1.processMessage(null, buffer);
+			assertEquals(1, p1.getStatistics().invalidSubmessageSize);
+			
+			// TODO add more
+		}
+	}
+	
 	public void testDuplicateEntityIdCreation() {
 		try (RTPSParticipant p1 = new RTPSParticipant(null, 0, 0, false)) {
 			GUID guid = new GUID(new GUIDPrefix(), new EntityId(0));
