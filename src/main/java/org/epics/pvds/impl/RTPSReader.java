@@ -565,7 +565,7 @@ public class RTPSReader implements PeriodicTimerCallback, AutoCloseable
 		long seqNo = buffer.getLong();
 
 		stats.receivedSN++;
-		//System.out.println("rx: " + seqNo);
+		System.out.println("rx: " + seqNo);
 		
 		if (seqNo < ignoreSequenceNumbersPrior)
 		{
@@ -869,7 +869,7 @@ public class RTPSReader implements PeriodicTimerCallback, AutoCloseable
 		{
 			lastHeartbeatCount = count;
 		
-			//System.out.println("HEARTBEAT: " + firstSN + " -> " + lastSN + " | " + count);
+			System.out.println("HEARTBEAT: " + firstSN + " -> " + lastSN + " | " + count);
 			
 			if (lastSN > lastKnownSequenceNumber)
 				lastKnownSequenceNumber = lastSN;

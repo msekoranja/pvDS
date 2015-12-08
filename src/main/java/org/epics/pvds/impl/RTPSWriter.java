@@ -2,6 +2,7 @@ package org.epics.pvds.impl;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.net.StandardSocketOptions;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
@@ -27,6 +28,7 @@ import org.epics.pvds.Protocol.SequenceNumberSet;
 import org.epics.pvds.Protocol.SubmessageHeader;
 import org.epics.pvds.impl.QoS.QOS_SEND_SEQNO_FILTER.SeqNoFilter;
 import org.epics.pvds.impl.RTPSParticipant.PeriodicTimerCallback;
+import org.epics.pvds.impl.RTPSParticipant.WriteInterceptor;
 import org.epics.pvds.util.BitSet;
 import org.epics.pvds.util.LongDynaHeap;
 
@@ -272,6 +274,8 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 	    // this implies first seqNo will be 2
 	    writerSequenceNumber.incrementAndGet();
 	    lastSentSeqNo = 1;
+
+	    interceptor = participant.getWriteInterceptor();
 
 	    if (logger.isLoggable(Level.CONFIG))
 	    {
@@ -711,6 +715,21 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
         }
     }
     
+    private final WriteInterceptor interceptor;
+    
+    private final void send(ByteBuffer buffer, SocketAddress sendAddress) throws IOException
+    {
+    	if (interceptor != null)
+    	{
+    		interceptor.send(unicastChannel, buffer, sendAddress);
+    		return;
+    	}
+    	
+	    // NOTE: yes, DatagramChannel.send() can send 0 (!) or be.buffer.remaining()
+	    while (buffer.hasRemaining())
+	    	unicastChannel.send(buffer, sendAddress);
+    }
+    
     // TODO preinitialize, can be fixed
     private final ByteBuffer heartbeatBuffer = ByteBuffer.allocate(64);
     private long lastMulticastHeartbeatTime;
@@ -737,8 +756,7 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 	    	lastMulticastHeartbeatTime = now;
 	    }
 		
-	    while (heartbeatBuffer.hasRemaining())
-	    	unicastChannel.send(heartbeatBuffer, sendAddress);
+	    send(heartbeatBuffer, sendAddress);
 
 		messagesSinceLastHeartbeat = 0;
 
@@ -849,10 +867,7 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 		    if (sendSeqNoFilter == null || sendSeqNoFilter.checkSeqNo(be.sequenceNo))
 		    {
 			    be.buffer.flip();
-
-			    // NOTE: yes, send can send 0 or be.buffer.remaining() 
-			    while (be.buffer.hasRemaining())
-			    	unicastChannel.send(be.buffer, sendAddress);
+			    send(be.buffer, sendAddress);
 		    }
 		}
 		finally
@@ -1000,12 +1015,15 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
     	// unlocks what takeFreeBuffer locks
     	be.unlock();
     	
+    	boolean notify = sendQueue.isEmpty();
+    	
     	// enqueue
 	    sendQueue.put(be);
 	    
 	    // notify
-	    // TODO only if needed, e.g. senqueue is not already full
-	    participant.notifyDataAvailbale();
+	    // NOTE: it is OK to do an unnecessary notification
+	    if (notify)
+	    	participant.notifyDataAvailbale();
     }
     
     public GUID getGUID() {
@@ -1019,10 +1037,5 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 	    participant.removePeriodicTimeSubscriber(new GUIDHolder(writerGUID));
 	    participant.destroyWriter(writerId);
 	}
-	
-	
-	
-	
-	
 	
 }

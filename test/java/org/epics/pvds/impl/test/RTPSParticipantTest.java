@@ -1,9 +1,17 @@
 package org.epics.pvds.impl.test;
 
+import java.io.IOException;
+import java.lang.reflect.Array;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.channels.DatagramChannel;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -14,9 +22,10 @@ import org.epics.pvds.Protocol.EntityId;
 import org.epics.pvds.Protocol.GUID;
 import org.epics.pvds.Protocol.GUIDPrefix;
 import org.epics.pvds.impl.QoS;
-import org.epics.pvds.impl.QoS.ReaderQOS;
 import org.epics.pvds.impl.QoS.QOS_SEND_SEQNO_FILTER.SeqNoFilter;
+import org.epics.pvds.impl.QoS.ReaderQOS;
 import org.epics.pvds.impl.RTPSParticipant;
+import org.epics.pvds.impl.RTPSParticipant.WriteInterceptor;
 import org.epics.pvds.impl.RTPSReader;
 import org.epics.pvds.impl.RTPSReader.SharedBuffer;
 import org.epics.pvds.impl.RTPSWriter;
@@ -512,4 +521,286 @@ public class RTPSParticipantTest extends TestCase {
 		fragmentedLossyCommunicationCombinations(QoS.UNRELIABLE_UNORDERED_QOS, 4);
 	}
 
+
+	static class Permutations<E> implements Iterator<E[]>{
+
+	    private final E[] arr;
+	    private final int offset;
+	    private int[] ind;
+	    private boolean has_next;
+
+	    public final E[] output;//next() returns this array, make it public
+
+	    @SuppressWarnings("unchecked")
+		Permutations(E[] arr, int offset){
+	        this.arr = arr;	//NOTE: we do not clone arr.clone();
+	        this.offset = offset;
+	        ind = new int[arr.length];
+	        /*
+	        //convert an array of any elements into array of integers - first occurrence is used to enumerate
+	        Map<E, Integer> hm = new HashMap<E, Integer>();
+	        for(int i = 0; i < arr.length; i++){
+	            Integer n = hm.get(arr[i]);
+	            if (n == null){
+	                hm.put(arr[i], i);
+	                n = i;
+	            }
+	            ind[i] = n.intValue();
+	        }
+	        Arrays.sort(ind);//start with ascending sequence of integers
+			*/
+	        for(int i = 0; i < arr.length; i++)
+	            ind[i] = i;
+
+	        //output = new E[arr.length]; <-- cannot do in Java with generics, so use reflection
+	        output = (E[]) Array.newInstance(arr.getClass().getComponentType(), arr.length);
+	        has_next = true;
+	    }
+
+	    public boolean hasNext() {
+	        return has_next;
+	    }
+
+	    /**
+	     * Computes next permutations. Same array instance is returned every time!
+	     * @return
+	     */
+	    public E[] next() {
+	        if (!has_next)
+	            throw new NoSuchElementException();
+
+	        for(int i = 0; i < ind.length; i++){
+	            output[i] = arr[ind[i]];
+	        }
+
+
+	        //get next permutation
+	        has_next = false;
+	        for(int tail = ind.length - 1;tail > offset;tail--){
+	            if (ind[tail - 1] < ind[tail]){//still increasing
+
+	                //find last element which does not exceed ind[tail-1]
+	                int s = ind.length - 1;
+	                while(ind[tail-1] >= ind[s])
+	                    s--;
+
+	                swap(ind, tail-1, s);
+
+	                //reverse order of elements in the tail
+	                for(int i = tail, j = ind.length - 1; i < j; i++, j--){
+	                    swap(ind, i, j);
+	                }
+	                has_next = true;
+	                break;
+	            }
+
+	        }
+	        return output;
+	    }
+
+	    private void swap(int[] arr, int i, int j){
+	        int t = arr[i];
+	        arr[i] = arr[j];
+	        arr[j] = t;
+	    }
+
+	    public void remove() {
+
+	    }
+	}
+
+	private static class WriteInterceptorImpl implements WriteInterceptor
+	{
+		enum Mode { DROP, STORE, SEND };
+		volatile Mode mode = Mode.SEND;
+		final ArrayList<ByteBuffer> queue = new ArrayList<ByteBuffer>();
+		
+		volatile DatagramChannel channel;
+		volatile SocketAddress sendAddress;
+		
+		private static ByteBuffer deepCopy(final ByteBuffer original) {
+
+			final ByteBuffer copy = (original.isDirect()) ?
+		        ByteBuffer.allocateDirect(original.capacity()) :
+		        ByteBuffer.allocate(original.capacity());
+
+		    copy.put(original);
+
+		    return copy;
+		}
+		
+		@Override
+		public void send(DatagramChannel channel, ByteBuffer buffer,
+				SocketAddress sendAddress) throws IOException {
+			
+			// save first
+			if (this.channel == null)
+				this.channel = channel;
+			if (this.sendAddress == null)
+				this.sendAddress = sendAddress;
+			
+			switch (mode)
+			{
+			case DROP:
+				buffer.position(buffer.limit());
+				break;
+			case STORE:
+				queue.add(deepCopy(buffer));
+				break;
+			case SEND:
+			    while (buffer.hasRemaining())
+			    	channel.send(buffer, sendAddress);
+				break;
+			}
+		}
+		
+		/*
+		void flush() throws IOException
+		{
+			for (ByteBuffer buffer : queue)
+			{
+				buffer.flip();
+				while (buffer.hasRemaining())
+					channel.send(buffer, sendAddress);
+			}
+			queue.clear();
+		}
+		*/
+		
+		void flush(DatagramChannel channel, SocketAddress sendAddress, ByteBuffer[] arr) throws IOException
+		{
+			for (ByteBuffer buffer : arr)
+			{
+				buffer.flip();
+				while (buffer.hasRemaining())
+					channel.send(buffer, sendAddress);
+			}
+		}
+
+	}
+	
+	private void lossLessUnorderedCommunication(ReaderQOS[] readerQoS) throws InterruptedException, IOException
+	{
+		try (RTPSParticipant readerParticipant = new RTPSParticipant(null, 0, 0, false);
+			 RTPSParticipant writerParticipant = new RTPSParticipant(null, 0, 0, true)) {
+			
+			final int MESSAGE_SIZE = Long.BYTES;
+			final int MESSAGES = 5;
+			final int TIMEOUT_MS = 1000;
+			final int UNRELIABLE_TIMEOUT_MS = 10;
+
+			// setup interceptor
+			WriteInterceptorImpl interceptor = new WriteInterceptorImpl();
+			writerParticipant.setWriteInterceptor(interceptor);
+			int readerQueueSize = MESSAGES;
+			{
+				try (RTPSWriter writer = writerParticipant.createWriter(
+						readerQueueSize, MESSAGE_SIZE, MESSAGES,
+						new QoS.WriterQOS[] { QoS.QOS_ALWAYS_SEND }, null))
+				{
+					ByteBuffer writeBuffer = ByteBuffer.allocate(MESSAGE_SIZE);
+					
+					interceptor.mode = WriteInterceptorImpl.Mode.STORE;
+					
+					for (int i = 0; i < MESSAGES; i++)
+					{
+						writeBuffer.clear();
+						writeBuffer.putLong(i);
+						writeBuffer.flip();
+						
+						long seqNo = writer.write(writeBuffer);
+						assertTrue(seqNo != 0);
+					}
+
+					// wait until all messages are sent and some HBs
+					// NOTE: might require more HBs if MESSAGES count is bigger (because of "per message HBs")
+					final int requiredMessages = (MESSAGES + 2); // + 2 HBs
+			    	while (interceptor.queue.size() <= requiredMessages)
+			    		Thread.yield();
+			    	while (interceptor.queue.size() > requiredMessages)
+			    		interceptor.queue.remove(interceptor.queue.size()-1);
+		
+	//				interceptor.mode = WriteInterceptorImpl.Mode.SEND;
+					interceptor.mode = WriteInterceptorImpl.Mode.DROP;
+
+					ByteBuffer[] ob = interceptor.queue.toArray(new ByteBuffer[interceptor.queue.size()]);
+					for (Permutations<ByteBuffer> p = new Permutations<ByteBuffer>(ob, 1);
+						 p.hasNext();
+					)
+					{
+						Thread.sleep(1);
+						try (
+							RTPSReader reader = readerParticipant.createReader(
+									0, writer.getGUID(), 
+									MESSAGE_SIZE, readerQueueSize,
+									readerQoS, null))
+						{
+			System.out.println("take ----------------------- ");			
+							ByteBuffer[] b = p.next();
+//							interceptor.flush(writerParticipant.getUnicastChannel(), new InetSocketAddress(readerParticipant.getMulticastGroup(), readerParticipant.getMulticastPort()), b);
+							interceptor.flush(writerParticipant.getUnicastChannel(), readerParticipant.getUnicastChannel().getLocalAddress(), b);
+			
+							// NOTE: by ref compare, OK for this test
+							if (readerQoS == QoS.RELIABLE_ORDERED_QOS)
+							{
+								for (int i = 0; i < MESSAGES; i++)
+								{
+									try (SharedBuffer sharedBuffer = reader.read(TIMEOUT_MS, TimeUnit.MILLISECONDS))
+									{
+										assertNotNull(sharedBuffer);
+										assertEquals(i, sharedBuffer.getBuffer().getLong());
+									}
+								}
+							}
+							else if (readerQoS == QoS.UNRELIABLE_ORDERED_QOS)
+							{
+								// duplicate, order test
+								long lastValue = Long.MIN_VALUE;
+								Set<Long> valueSet = new HashSet<Long>(MESSAGES, 1);
+								while (true)
+								{
+									try (SharedBuffer sharedBuffer = reader.read(UNRELIABLE_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+									{
+										if (sharedBuffer == null)
+											break;
+										long value = sharedBuffer.getBuffer().getLong();
+										assertTrue(value > lastValue);
+										lastValue = value;
+		
+										assertFalse(valueSet.contains(value));
+										valueSet.add(value);
+									}
+								}
+							}
+							else if (readerQoS == QoS.UNRELIABLE_UNORDERED_QOS)
+							{
+								// duplicate test
+								Set<Long> valueSet = new HashSet<Long>(MESSAGES, 1);
+								while (true)
+								{
+									try (SharedBuffer sharedBuffer = reader.read(UNRELIABLE_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+									{
+										if (sharedBuffer == null)
+											break;
+										long value = sharedBuffer.getBuffer().getLong();
+		
+										assertFalse(valueSet.contains(value));
+										valueSet.add(value);
+									}
+								}
+							}
+							else
+								throw new RuntimeException("unsupported ReaderQoS[]");
+						}
+					}
+				}
+			}
+		}
+	}
+
+	public void testLossLessUnorderedReliableOrderedCommunication() throws InterruptedException, IOException
+	{
+		lossLessUnorderedCommunication(QoS.RELIABLE_ORDERED_QOS);
+	}
+	
 }
