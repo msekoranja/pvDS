@@ -2,7 +2,6 @@ package org.epics.pvds.impl.test;
 
 import java.io.IOException;
 import java.lang.reflect.Array;
-import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
@@ -29,8 +28,6 @@ import org.epics.pvds.impl.RTPSParticipant.WriteInterceptor;
 import org.epics.pvds.impl.RTPSReader;
 import org.epics.pvds.impl.RTPSReader.SharedBuffer;
 import org.epics.pvds.impl.RTPSWriter;
-
-import com.sun.xml.internal.fastinfoset.util.FixedEntryStringIntMap;
 
 public class RTPSParticipantTest extends TestCase {
 
