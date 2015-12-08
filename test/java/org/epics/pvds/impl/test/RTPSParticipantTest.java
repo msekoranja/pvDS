@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import junit.framework.TestCase;
 
@@ -27,7 +28,11 @@ import org.epics.pvds.impl.RTPSParticipant;
 import org.epics.pvds.impl.RTPSParticipant.WriteInterceptor;
 import org.epics.pvds.impl.RTPSReader;
 import org.epics.pvds.impl.RTPSReader.SharedBuffer;
+import org.epics.pvds.impl.RTPSWriter.ReaderEntry;
+import org.epics.pvds.impl.GUIDHolder;
 import org.epics.pvds.impl.RTPSWriter;
+import org.epics.pvds.impl.RTPSWriterListener;
+import org.epics.pvds.util.ResettableLatch;
 
 public class RTPSParticipantTest extends TestCase {
 
@@ -127,6 +132,114 @@ public class RTPSParticipantTest extends TestCase {
 			p1.createReader(3, guid, 16, 1);
 			p1.createReader(4, guid, 16, 1);
 			p1.createReader(5, new GUID(new GUIDPrefix(), new EntityId(1)), 16, 1);
+		}
+	}
+
+	public void testWriter() throws InterruptedException {
+		try (RTPSParticipant participant = new RTPSParticipant(null, 0, 0, false))
+		{
+			
+			try
+			{
+				participant.createWriter(0, 0, 0);
+				fail("maxMessageSize too small accepted");
+			} 
+			catch (IllegalArgumentException iae) {
+				// OK
+			}
+	
+			try
+			{
+				participant.createWriter(0, 8, 0);
+				fail("maxQueueSize <= 0 accepted");
+			} 
+			catch (IllegalArgumentException iae) {
+				// OK
+			}
+			
+			QoS.WriterQOS unsupportedQoS = new QoS.WriterQOS() {};
+			RTPSWriter w = participant.createWriter(0, 8, 1, new QoS.WriterQOS[] { unsupportedQoS }, null);
+			// no fail, just warning log
+			w.close();
+			
+			final AtomicInteger readerCount = new AtomicInteger(0);
+			final ResettableLatch notification = new ResettableLatch(1);
+			RTPSWriterListener listener = new RTPSWriterListener() {
+				
+				@Override
+				public void readerRemoved(GUIDHolder readerId) {
+					readerCount.decrementAndGet();
+					notification.countDown();
+				}
+				
+				@Override
+				public void readerAdded(GUIDHolder readerId, SocketAddress address,
+						ReaderEntry readerEntry) {
+					readerCount.incrementAndGet();
+					notification.countDown();
+				}
+			};
+
+			try (RTPSWriter writer = participant.createWriter(0, 8, 1, null, listener);
+				 RTPSReader reader = participant.createReader(
+						1, writer.getGUID(), 
+						8, 1,
+						QoS.RELIABLE_ORDERED_QOS, null))
+			{
+				
+				// TODO infinite loop in case of a bug
+				while (writer.getReaderCount() == 0)
+					Thread.sleep(100);
+
+				notification.await(3000, TimeUnit.MILLISECONDS);
+				
+				// check notification
+				assertEquals(1, readerCount.get());
+
+				// close the reader
+				notification.reset(1);
+				reader.close();
+	
+				// TODO infinite loop in case of a bug
+				while (writer.getReaderCount() > 0)
+					Thread.sleep(100);
+	
+				notification.await(3000, TimeUnit.MILLISECONDS);
+				
+				// check notification
+				assertEquals(0, readerCount.get());
+				
+				ByteBuffer buffer = ByteBuffer.allocate(16);
+				buffer.flip();
+				try
+				{
+					writer.write(buffer);
+					fail("empty buffer write accepted");
+				} 
+				catch (IllegalArgumentException iae) {
+					// OK
+				}
+				
+				buffer.clear();
+				buffer.putInt(12);
+				buffer.flip();
+				try
+				{
+					writer.write(buffer);
+					fail("too small buffer accepted");
+				} 
+				catch (IllegalArgumentException iae) {
+					// OK
+				}
+				
+				buffer.clear();
+				buffer.putLong(128);
+				buffer.flip();
+				long seqNo = writer.write(buffer);
+				// 0 indicates no reader
+				assertEquals(0, seqNo);
+				
+			}
 		}
 	}
 	
@@ -726,7 +839,7 @@ public class RTPSParticipantTest extends TestCase {
 					if (dropEverySecond)
 						requiredMessages = (requiredMessages + 1)/2;
 			    	while (interceptor.queue.size() <= requiredMessages)
-			    		Thread.yield();
+			    		Thread.sleep(100);
 			    	while (interceptor.queue.size() > requiredMessages)
 			    		interceptor.queue.remove(interceptor.queue.size()-1);
 		
@@ -881,8 +994,9 @@ public class RTPSParticipantTest extends TestCase {
 					
 				}).start();
 					
+				// TODO infinite loop in case of a bug
 				while (writer.getReaderCount() == 0)
-					Thread.yield();
+					Thread.sleep(100);
 				
 				ByteBuffer writeBuffer = ByteBuffer.allocate(MESSAGE_SIZE);
 				
@@ -894,9 +1008,7 @@ public class RTPSParticipantTest extends TestCase {
 					writeBuffer.putLong(i);
 					writeBuffer.flip();
 					
-					long seqNo = writer.write(writeBuffer);
-					assertTrue(seqNo != 0);
-					assertTrue(writer.waitUntilAcked(seqNo, TIMEOUT_MS));
+					writer.write(writeBuffer, TIMEOUT_MS);
 				}
 				
 			}
@@ -918,6 +1030,5 @@ public class RTPSParticipantTest extends TestCase {
 			System.getProperties().remove("PVDS_MAX_UDP_PACKET_SIZE");
 		}
 	}
-	
 	
 }

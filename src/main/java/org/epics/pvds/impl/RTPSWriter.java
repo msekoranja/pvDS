@@ -175,8 +175,8 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
 		this.writerGUID = new GUID(participant.guidPrefix, new EntityId(writerId));
 		this.listener = listnener;
 		
-		if (maxMessageSize <= 0)
-			throw new IllegalArgumentException("maxMessageSize <= 0");
+		if (maxMessageSize < Long.BYTES)	// FREE_MARK size
+			throw new IllegalArgumentException("maxMessageSize < " + Long.BYTES);
 		
 		if (messageQueueSize <= 0)
 			throw new IllegalArgumentException("messageQueueSize <= 0");
@@ -903,7 +903,7 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
     	int dataSize = data.remaining();
     	if (dataSize == 0)
     		throw new IllegalArgumentException("empty buffer");
-    	else if (dataSize < Long.BYTES)	// FREE_MARK Size
+    	else if (dataSize < Long.BYTES)	// FREE_MARK size
     		throw new IllegalArgumentException("buffer too small, must be at least " + Long.BYTES + " bytes long");
     		
     	// no readers, no sending
