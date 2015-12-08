@@ -517,6 +517,11 @@ public class RTPSWriter implements PeriodicTimerCallback, AutoCloseable {
     		return (seqNo <= lastAckedSeqNo) ? true : false;
     	}
     }
+	
+	public int getReaderCount()
+	{
+		return readerCount.get();
+	}
 
     public boolean write(ByteBuffer data, long timeout) throws InterruptedException
     {

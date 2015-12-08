@@ -841,4 +841,83 @@ public class RTPSParticipantTest extends TestCase {
 	{
 		lossLessUnorderedCommunication(QoS.UNRELIABLE_UNORDERED_QOS, 4, true);
 	}
+	
+	
+	private void ackedLossLessFragmentedCommunication(
+			int id,
+			RTPSParticipant readerParticipant, RTPSParticipant writerParticipant,
+			int queueSize) throws InterruptedException
+	{
+			final int MESSAGE_SIZE = 3*Long.BYTES;
+			final int TIMEOUT_MS = 1000;
+
+			for (int readerQueueSize = 1; readerQueueSize <= queueSize; readerQueueSize++)
+			{
+				try (
+					RTPSWriter writer = writerParticipant.createWriter(
+							readerQueueSize*1000000 + id, MESSAGE_SIZE, queueSize,
+							new QoS.WriterQOS[] { QoS.QOS_ALWAYS_SEND }, null);
+					RTPSReader reader = readerParticipant.createReader(
+							readerQueueSize*1000000 + id, writer.getGUID(), 
+							MESSAGE_SIZE, readerQueueSize,
+							QoS.RELIABLE_ORDERED_QOS, null))
+				{
+					
+				new Thread(() -> {
+					try {
+						for (int i = 0; i < queueSize; i++)
+						{
+							try (SharedBuffer sharedBuffer = reader.read(TIMEOUT_MS, TimeUnit.MILLISECONDS))
+							{
+								assertNotNull(sharedBuffer);
+								assertEquals(i, sharedBuffer.getBuffer().getLong());
+								assertEquals(i, sharedBuffer.getBuffer().getLong());
+								assertEquals(i, sharedBuffer.getBuffer().getLong());
+							}
+						}
+					} catch (InterruptedException ie) {
+						fail(ie.toString());
+					}
+					
+				}).start();
+					
+				while (writer.getReaderCount() == 0)
+					Thread.yield();
+				
+				ByteBuffer writeBuffer = ByteBuffer.allocate(MESSAGE_SIZE);
+				
+				for (int i = 0; i < queueSize; i++)
+				{
+					writeBuffer.clear();
+					writeBuffer.putLong(i);
+					writeBuffer.putLong(i);
+					writeBuffer.putLong(i);
+					writeBuffer.flip();
+					
+					long seqNo = writer.write(writeBuffer);
+					assertTrue(seqNo != 0);
+					assertTrue(writer.waitUntilAcked(seqNo, TIMEOUT_MS));
+				}
+				
+			}
+		}
+		
+	}
+	
+	public void testAckedLossLessFragmentedCommunication() throws InterruptedException {
+
+		System.getProperties().put("PVDS_MAX_UDP_PACKET_SIZE", "64");
+		
+		try (RTPSParticipant readerParticipant = new RTPSParticipant(null, 0, 0, false);
+			 RTPSParticipant writerParticipant = new RTPSParticipant(null, 0, 0, true)) {
+			
+			ackedLossLessFragmentedCommunication(0, readerParticipant, writerParticipant, 10);
+		}
+		finally 
+		{
+			System.getProperties().remove("PVDS_MAX_UDP_PACKET_SIZE");
+		}
+	}
+	
+	
 }
