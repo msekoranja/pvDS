@@ -18,7 +18,7 @@ public class CounterWriter {
 				true);
 		
 		RTPSWriter writer = participant.createWriter(Constants.WRITER_ID, CounterData.MESSAGE_SIZE, 1);
-	    System.out.println("Writer GUID: " + writer.getGUID());
+		System.out.println("Writer GUID: " + writer.getGUID());
 		
 		ByteBuffer buffer = ByteBuffer.allocate(CounterData.MESSAGE_SIZE);
 		CounterData counterData = new CounterData();
