@@ -25,7 +25,7 @@ pvDS participant is called a `RTPSPaticipant`. Each participant belongs to a dom
 
 Each `RTPSPaticipant` communicate with more that one topic. A topic is identified with globally unique ID (GUID). The GUID is composed of the `RTPSPaticipant` GUID (as prefix) and topic ID (as postfix). If a participant wants to sent (push, publish) data to the topic it must create an `RTPSWriter` instance. And in order to receive (pull, subscribe) messages from the topic it needs to create an  `RTPSReader` instance. `RTPSWriter` instance determines whether the topic supports reliable QoS or not (i.e. whether the writer waits for all the readers to acknowldege the reception of the messages). A message is available for resend (in case one reader missed an UDP message) until it gets overriden by the newer message by the writer. A size of the (re)send buffer on the writer side is configurable. `RTPSReader` needs to know the GUID of the topic to subscribe to.
 
-pvDS sends only array of bytes as data. This means that does not specifies the data serialization protocol. It is up to the programmer to take care of that or to develop a framework on top of the pvDS.
+pvDS sends only array of bytes as data. This means that does not specify the data serialization protocol. It is up to the programmer to take care of that or to develop a framework on top of the pvDS.
 
 # Code Example
 
