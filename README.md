@@ -29,22 +29,22 @@ pvDS sends only array of bytes as data. This means that does not specifies the d
 
 # Code Example
 
-An example is located in [here](../blob/master/test/java/org/epics/pvds/test/example/counter). It consits of one writer and one (or many as you like) readers. A writer peridoically with 10Hz sends a message containing a free running 64-bit counter and a timestamp.
+An example is located [here](../master/test/java/org/epics/pvds/test/example/counter). It consits of one writer and one (or many as you like) readers. A writer peridoically with 10Hz sends a message containing a free running 64-bit counter and a timestamp.
 
 In order to run example, just open the project on your favourite IDE and run `CounterWriter` and `CounterReader` (or many) Java console applications. Run `gradlew eclipse` command to generate Eclipse project files.
 
-#### [Constants.java](../blob/master/test/java/org/epics/pvds/test/example/counter/Constants.java)
+#### [Constants.java](..//master/test/java/org/epics/pvds/test/example/counter/Constants.java)
 
 Defines constants used by this example. 
 
-#### [CounterData.java](../blob/master/test/java/org/epics/pvds/test/example/counter/CounterData.java)
+#### [CounterData.java](../master/test/java/org/epics/pvds/test/example/counter/CounterData.java)
 
 A POJO class that defined a message. It includes serialization and deserialization messages.
 
-#### [CounterWriter.java](../blob/master/test/java/org/epics/pvds/test/example/counter/CounterWriter.java)
+#### [CounterWriter.java](../master/test/java/org/epics/pvds/test/example/counter/CounterWriter.java)
 
 An example of simple pvDS writer. Default implementation acs as reliable writer. Unreliable version of code is commented out.
 
-#### [CounterReader.java](../blob/master/test/java/org/epics/pvds/test/example/counter/CounterReader.java)
+#### [CounterReader.java](../master/test/java/org/epics/pvds/test/example/counter/CounterReader.java)
 
 An example of simple pvDS reader. Default implementation acs as reliable and ordered reader. Unreliable version of code is commented out.
