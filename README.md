@@ -29,9 +29,11 @@ pvDS sends only array of bytes as data. This means that does not specifies the d
 
 # Code Example
 
-An example is located [here](../master/test/java/org/epics/pvds/test/example/counter). It consits of one writer and one (or many as you like) readers. A writer peridoically with 10Hz sends a message containing a free running 64-bit counter and a timestamp.
+An example is located [here](../master/test/java/org/epics/pvds/test/example/counter). It consists of one writer and one (or as many as you like) readers. A writer periodically with 10Hz sends a message containing a free running 64-bit counter and a timestamp.
 
-In order to run example, just open the project on your favourite IDE and run `CounterWriter` and `CounterReader` (or many) Java console applications. Run `gradlew eclipse` command to generate Eclipse project files.
+In order to run example, just open the project in your favourite IDE and run `CounterWriter` and `CounterReader` Java console applications. You can run multiple instance of `CounterReader` at once, but do NOT run multiple instances of `CounterWriter` - GUID is hardcoded (for simplicity) and running multiple instances of participants with the same GUID violates the pvDS GUID uniqueness requirement.
+
+Run `gradlew eclipse` command to generate Eclipse project files.
 
 #### [Constants.java](..//master/test/java/org/epics/pvds/test/example/counter/Constants.java)
 
